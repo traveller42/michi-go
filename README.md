@@ -23,4 +23,4 @@ Please go on his project page to read more about Michi and to find some informat
 
 Michi-Go is distributed under the MIT licence.  Now go forth, hack and peruse!
 
-(README adapted from the README at https://github.com/db3108/michi-c
+(This README adapted from the README at https://github.com/db3108/michi-c)
