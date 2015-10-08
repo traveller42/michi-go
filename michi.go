@@ -6,6 +6,7 @@ package main
 import (
     "fmt"
     "log"
+    "math/rand"
     "regexp"
     "strings"
 )
@@ -213,6 +214,24 @@ func SwapCase(str string) string {
     return strings.Map(swapCase, str)
 }
 
+// create routine to replace random.shuffle() in Python
+func Shuffle(a []int) {
+    for i := range a {
+        j := rand.Intn(i + 1)
+        a[i], a[j] = a[j], a[i]
+    }
+}
+
+// create routine to test existence of element in slice
+func intInSlice(intSlice []int, intTest int) bool {
+    for _, i := range intSlice {
+        if i == intTest {
+            return true
+        }
+    }
+    return false
+}
+
 // test for edge of board
 func IsSpace(str string) bool {
     return strings.ContainsAny(str, " \n")
@@ -271,6 +290,212 @@ func is_eye(board string, c int) string {
     return eyecolor
 }
 
+// class Position(namedtuple('Position', 'board cap n ko last last2 komi')):
+// Implementation of simple Chinese Go rules
+type Position struct {
+    board string // string representation of board state
+    cap []int    // holds total captured stones for each player
+    n int        // n is how many moves were played so far
+    ko int       // location of prohibited move under simple ko rules
+    last int     // previous move
+    last2 int    // antepenultimate move
+    komi float32
+}
+
+// play as player X at the given coord c, return the new position
+func (p Position) move(c int) (Position, string) {
+    // Test for ko
+    if c == p.ko {
+        return p, "ko"
+    }
+    // Are we trying to play in enemy's eye?
+    in_enemy_eye := is_eyeish(p.board, c) == "x"
+
+    board := board_put(p.board, c, "X")
+    // Test for captures, and track ko
+    capX := p.cap[0]
+    singlecaps := []int{}
+    for _, d := range neighbors(c) {
+        if board[d:d+1] != "x" {
+            continue
+        }
+        // XXX: The following is an extremely naive and SLOW approach
+        // at things - to do it properly, we should maintain some per-group
+        // data structures tracking liberties.
+        fboard := floodfill(board, d) // get a board with the adjacent group replaced by '#'
+        if contact(fboard, ".") != -1 {
+            continue  // some liberties left
+        }
+        // no liberties left for this group, remove the stones!
+        capcount := strings.Count(fboard, "#")
+        if capcount == 1 {
+            singlecaps = append(singlecaps, d)
+        }
+        capX += capcount
+        board = strings.Replace(fboard, "#", ".", -1) // capture the group
+    }
+    // set ko
+    ko := -1
+    if in_enemy_eye && len(singlecaps) == 1 {
+        ko = singlecaps[0]
+    }
+    // Test for suicide
+    if contact(floodfill(board, c), ".") == -1 {
+        return p, "suicide"
+    }
+
+    // Update the position and return
+    p.board = SwapCase(board)
+    p.cap = []int{p.cap[1], capX}
+    p.n = p.n + 1
+    p.ko = ko
+    p.last2 = p.last // must copy first
+    p.last = c
+    p.komi = p.komi
+
+    return p, "ok"
+}
+
+// pass - i.e. return simply a flipped position
+func (p Position) pass_move() (Position, string) {
+    p.board = SwapCase(p.board)
+    p.cap = []int{p.cap[1], p.cap[0]}
+    p.n = p.n + 1
+    p.ko = -1
+    p.last2 = p.last // must copy first
+    p.last = -1
+    p.komi = p.komi
+
+    return p, "ok"
+}
+
+// Generate a list of moves (includes false positives - suicide moves;
+// does not include true-eye-filling moves), starting from a given board
+// index (that can be used for randomization)
+func (p Position) moves(i0 int) chan int {
+    c := make(chan int)
+
+    go func() {
+        i := i0 - 1
+        passes := 0
+        for {
+            i = strings.Index(p.board[i+1:], ".")
+            if passes > 0 && (i==-1 || i >= i0) {
+                close(c)
+                break // we have looked through the whole board
+            }
+            if i == -1 {
+                i = 0
+                passes += 1
+                continue // go back and start from the beginning
+            }
+            // Test for to-play player's one-point eye
+            if is_eye(p.board, i) == "X" {
+                continue
+            }
+            // yield i
+            c <- i
+        }
+
+        close(c)
+    }()
+    return c
+}
+
+// generate a randomly shuffled list of points including and
+// surrounding the last two moves (but with the last move having
+// priority)
+func (p Position) last_moves_neighbors() []int {
+    clist := []int{}
+    dlist := []int{}
+    for _, c := range []int{p.last, p.last2} {
+        if c == -1 {
+            continue
+        }
+        // dlist = [c] + list(neighbors(c) + diag_neighbors(c))
+        dlist = append([]int{c}, append(neighbors(c), diag_neighbors(c)...)...)
+        Shuffle(dlist)
+        // clist += [d for d in dlist if d not in clist]
+        for _, d := range dlist {
+            if intInSlice(clist, d) {
+                continue
+            }
+            clist = append(clist, d)
+        }
+    }
+    return clist
+}
+
+// compute score for to-play player; this assumes a final position
+// with all dead stones captured; if owner_map is passed, it is assumed
+// to be an array of statistics with average owner at the end of the game
+// (+1 black, -1 white)
+func (p Position) score(owner_map []int) float32 {
+    board := p.board
+    var fboard string
+    var touches_X, touches_x bool
+    var komi float32
+    var n int
+    i := 0
+    for {
+        i = strings.Index(p.board[i+1:], ".")
+        if i == -1 {
+            break
+        }
+        fboard = floodfill(board, i)
+        // fboard is board with some continuous area of empty space replaced by #
+        touches_X = contact(fboard, "X") != -1
+        touches_x = contact(fboard, "x") != -1
+        if touches_X && !touches_x {
+            board = strings.Replace(fboard, "#", "X", -1)
+        } else if touches_x && !touches_X {
+            board = strings.Replace(fboard, "#", "x", -1)
+        } else {
+            board = strings.Replace(fboard, "#", ":", -1) // seki, rare
+        }
+    }
+    // now that area is replaced either by X, x or :
+    // komi = self.komi if self.n % 2 == 1 else -self.komi
+    if p.n % 2 == 1 {
+        komi = p.komi
+    } else {
+        komi = -p.komi
+    }
+    if len(owner_map) > 0 {
+        for c := 0; c < W*W; c++ {
+            if board[c:c+1] == "X" {
+                n = 1
+            } else if board[c:c+1] == "x" {
+                n = -1
+            } else {
+                n = 0
+            }
+            if p.n % 2 == 1 {
+                n = -n
+            }
+            owner_map[c] += n
+        }
+    }
+    return float32(strings.Count(board, "X") - strings.Count(board, "x")) + komi
+}
+
+// Return an initial board position
+func empty_position() Position {
+    var p Position
+
+    p.board = empty
+    p.cap = []int{0, 0}
+    p.n = 0
+    p.ko = -1
+    p.last = -1
+    p.last2 = -1
+    p.komi = 7.5
+
+    return p
+}
+
+//##############
+
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
     log.Println("Start")
@@ -281,6 +506,9 @@ func main() {
 
     fmt.Println(neighbors(23))
     fmt.Println(diag_neighbors(23))
+
+    p := empty_position()
+    fmt.Println(p)
 
     log.Println("End")
 }
