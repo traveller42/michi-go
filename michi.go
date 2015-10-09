@@ -673,6 +673,79 @@ func empty_area(board string, c, dist int) bool {
     return true
 }
 
+// 3x3 pattern routines (those patterns stored in pat3src above)
+
+// All possible neighborhood configurations matching a given pattern;
+// used just for a combinatoric explosion when loading them in an
+// in-memory set.
+func pat3_expand(pat []string) []string {
+    pat_rot90 := func(p []string) []string {
+        return []string{p[2][0:1] + p[1][0:1] + p[2][0:1],
+                        p[2][1:2] + p[1][1:2] + p[0][1:2],
+                        p[2][2:3] + p[1][2:3] + p[0][2:3]}
+    }
+    pat_vertflip := func(p []string) []string {
+        return []string{p[2], p[1], p[0]}
+    }
+    pat_horizflip := func(p []string) []string {
+        return []string{p[0][2:3] + p[0][1:2] + p[0][0:1],
+                        p[1][2:3] + p[1][1:2] + p[1][0:1],
+                        p[2][2:3] + p[2][1:2] + p[2][0:1]}
+    }
+    pat_swapcolors := func(p []string) []string {
+        l := []string{}
+        for _, s:= range(p) {
+            s = strings.Replace(s, "X", "Z", -1)
+            s = strings.Replace(s, "x", "z", -1)
+            s = strings.Replace(s, "O", "X", -1)
+            s = strings.Replace(s, "o", "x", -1)
+            s = strings.Replace(s, "Z", "O", -1)
+            s = strings.Replace(s, "z", "o", -1)
+            l = append(l, s)
+        }
+        return l
+    }
+    var pat_wildexp func(p, c, to string) []string
+    pat_wildexp = func(p, c, to string) []string {
+        i := strings.Index(p, c)
+        if i == -1 {
+            return []string{p}
+        }
+        l := []string{}
+        for _, t := range(strings.Split(to, "")) {
+            l = append(l, pat_wildexp(p[:i] + t + p[i+1:], c, to)...)
+        }
+        return l
+    }
+    pat_wildcards := func(pat string) []string {
+        l := []string{}
+        for _, p1 := range(pat_wildexp(pat, "?", ".XO ")) {
+            for _, p2 := range(pat_wildexp(p1, "x", ".O ")) {
+                for _, p3 := range(pat_wildexp(p2, "o", ".X ")) {
+                    l = append(l, p3)
+                }
+            }
+        }
+        return l
+    }
+
+    rl := []string{}
+    for _, p1 := range([][]string{pat, pat_rot90(pat)}) {
+        for _, p2 := range([][]string{p1, pat_vertflip(p1)}) {
+            for _, p3 := range([][]string{p2, pat_horizflip(p2)}) {
+                for _, p4 := range([][]string{p3, pat_swapcolors(p3)}) {
+                    for _, p5 := range(pat_wildcards(strings.Join(p4, ""))) {
+                        rl = append(rl, p5)
+                    }
+                }
+            }
+        }
+    }
+    return rl
+}
+
+
+
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
     log.Println("Start")
