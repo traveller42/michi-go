@@ -197,7 +197,12 @@ func contact(board, p string) int {
     return m[1] - 1
 }
 
-// functions added to replace Python string methods
+// functions added to replace Python functions and methods
+
+func divmod(num, div int) (int, int) {
+    return num / div, num % div
+}
+
 // mapping function to swap individual characters
 func swapCase(r rune) rune {
     switch {
@@ -495,6 +500,178 @@ func empty_position() Position {
 }
 
 //##############
+// go heuristics
+
+// An atari/capture analysis routine that checks the group at c,
+// determining whether (i) it is in atari (ii) if it can escape it,
+// either by playing on its liberty or counter-capturing another group.
+//  N.B. this is maybe the most complicated part of the whole program (sadly);
+// feel free to just TREAT IT AS A BLACK-BOX, it's not really that
+// interesting!
+// The return value is a tuple of (boolean, [coord..]), indicating whether
+// the group is in atari and how to escape/capture (or [] if impossible).
+// (Note that (False, [...]) is possible in case the group can be captured
+// in a ladder - it is not in atari but some capture attack/defense moves
+// are available.)
+// singlept_ok means that we will not try to save one-point groups;
+// twolib_test means that we will check for 2-liberty groups which are
+// threatened by a ladder
+// twolib_edgeonly means that we will check the 2-liberty groups only
+// at the board edge, allowing check of the most common short ladders
+// even in the playouts
+// def fix_atari(pos, c, singlept_ok=False, twolib_test=True, twolib_edgeonly=False):
+func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bool) (bool, []int) {
+
+    // check if a capturable ladder is being pulled out at c and return
+    // a move that continues it in that case; expects its two liberties as
+    // l1, l2  (in fact, this is a general 2-lib capture exhaustive solver)
+    read_ladder_attack := func(pos Position, c, l1, l2 int) int {
+        for l := range([]int{l1, l2}) {
+            pos_l, pos_err := pos.move(l)
+            if pos_err != "ok" {
+                continue
+            }
+            // fix_atari() will recursively call read_ladder_attack() back;
+            // however, ignore 2lib groups as we don't have time to chase them
+            // is_atari, atari_escape = fix_atari(pos_l, c, twolib_test=False)
+            is_atari, atari_escape := fix_atari(pos_l, c, false, false, false)
+            if is_atari && len(atari_escape) > 0 {
+                return l
+            }
+        }
+        return -1
+    }
+
+    fboard := floodfill(pos.board, c)
+    group_size := strings.Count(fboard, "#")
+    if singlept_ok && group_size == 1 {
+        return false, []int{}
+    }
+    // Find a liberty
+    l := contact(fboard, ".")
+    // Ok, any other liberty?
+    fboard = board_put(fboard, l, "L")
+    l2 := contact(fboard, ".")
+    if l2 != -1 {
+        // At least two liberty group...
+        if twolib_test && group_size > 1 &&
+           (!twolib_edgeonly || line_height(l) == 0 && line_height(l2) == 0) &&
+           contact(board_put(fboard, l2, "L"), ".") == -1 {
+            // Exactly two liberty group with more than one stone.  Check
+            // that it cannot be caught in a working ladder; if it can,
+            // that's as good as in atari, a capture threat.
+            // (Almost - N/A for countercaptures.)
+            ladder_attack := read_ladder_attack(pos, c, l, l2)
+            if ladder_attack >= 0 {
+                return false, []int{ladder_attack}
+            }
+        }
+        return false, []int{}
+    }
+
+    // In atari! If it's the opponent's group, that's enough...
+    if pos.board[c:c+1] == "x" {
+        return true, []int{l}
+    }
+
+    solutions := []int{}
+
+    // Before thinking about defense, what about counter-capturing
+    // a neighboring group?
+    ccboard := fboard
+    for {
+        othergroup := contact(ccboard, "x")
+        if othergroup == -1 {
+            break
+        }
+        // a, ccls = fix_atari(pos, othergroup, twolib_test=False)
+        a, ccls := fix_atari(pos, othergroup, false, false, false)
+        if a && len(ccls) > 0 {
+            solutions = append(solutions, ccls...)
+        }
+        // XXX: floodfill is better for big groups
+        ccboard = board_put(ccboard, othergroup, "%")
+    }
+
+    // We are escaping.  Will playing our last liberty gain
+    // at least two liberties?  Re-floodfill to account for connecting
+    escpos, escerr := pos.move(l)
+    if escerr != "ok" {
+        return true, solutions // oops, suicidal move
+    }
+    fboard = floodfill(escpos.board, l)
+    l_new := contact(fboard, ".")
+    fboard = board_put(fboard, l_new, "L")
+    l_new_2 := contact(fboard, ".")
+    if l_new_2 != -1 {
+        if len(solutions) > 0 ||
+           !(contact(board_put(fboard, l_new_2, "L"), ".") == -1 &&
+             read_ladder_attack(escpos, l, l_new, l_new_2) != -1) {
+             solutions = append(solutions, l)
+         }
+    }
+    return true, solutions
+}
+
+// return a board map listing common fate graph distances from
+// a given point - this corresponds to the concept of locality while
+// contracting groups to single points
+func cfg_distance(board string, c int) []int {
+    cfg_map := []int{}
+    for i := 0; i < W*W; i++ {
+        cfg_map = append(cfg_map, -1)
+    }
+    cfg_map[c] = 0
+
+    // flood-fill like mechanics
+    fringe := []int{c}
+    for len(fringe) > 0 {
+        // c = fringe.pop()
+        c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
+        for _, d := range(neighbors(c)) {
+            if IsSpace(board[d:d+1]) ||
+               (0 <= cfg_map[d] && cfg_map[d] <= cfg_map[c]) {
+                continue
+            }
+            cfg_before := cfg_map[d]
+            if board[d:d+1] != "." && board[d:d+1] == board[c:c+1] {
+                cfg_map[d] = cfg_map[c]
+            } else {
+                cfg_map[d] = cfg_map[c] + 1
+            }
+            if cfg_before < 0 || cfg_before > cfg_map[d] {
+                fringe = append(fringe, d)
+            }
+        }
+    }
+    return cfg_map
+}
+
+// Return the line number above nearest board edge
+func line_height(c int) int {
+    row, col := divmod(c - (W+1), W)
+    minVal := row
+    for testVal := range([]int{col, N-1-row, N-1-col}) {
+        if testVal < minVal {
+            minVal = testVal
+        }
+    }
+    return minVal
+}
+
+// Check whether there are any stones in Manhattan distance up to dist
+// def empty_area(board, c, dist=3):
+func empty_area(board string, c, dist int) bool {
+    for d := range(neighbors(c)) {
+        if strings.ContainsAny(board[d:d+1], "Xx") {
+            return false
+        }
+        if board[d:d+1] == "." && dist > 1 && !empty_area(board, d, dist-1) {
+            return false
+        }
+    }
+    return true
+}
 
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
