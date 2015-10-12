@@ -744,6 +744,33 @@ func pat3_expand(pat []string) []string {
     return rl
 }
 
+func pat3set_func() []string {
+    l := []string{}
+    for _, p := range(pat3src) {
+        for _, s := range(pat3_expand(p)) {
+            s = strings.Replace(s, "O", "x", -1)
+            unique := true
+            for _, t := range(l) {
+                if s == t {
+                    unique = false
+                    break
+                }
+            }
+            if unique {
+                l = append(l, s)
+            }
+        }
+    }
+    return l
+}
+var pat3set = pat3set_func()
+
+// return a string containing the 9 points forming 3x3 square around
+//  certain move candidate
+func neighborhood_33(board string, c int) string {
+    return strings.Replace(board[c-W-1:c-W+2] + board[c-1:c+2] + board[c+W-1:c+W+2], "\n", " ", -1)
+}
+
 
 
 func main() {
@@ -759,6 +786,8 @@ func main() {
 
     p := empty_position()
     fmt.Println(p)
+
+    fmt.Println(len(pat3set))
 
     log.Println("End")
 }
