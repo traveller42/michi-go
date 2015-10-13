@@ -4,10 +4,14 @@
 package main
 
 import (
+    "bufio"
     "fmt"
+    "hash/fnv"
     "log"
     "math/rand"
+    "os"
     "regexp"
+    "strconv"
     "strings"
 )
 
@@ -198,6 +202,13 @@ func contact(board, p string) int {
 }
 
 // functions added to replace Python functions and methods
+
+// use FNV Hash for Python hash function
+func HashString(s string) uint64 {
+    h := fnv.New64()
+    h.Write([]byte(s))
+    return h.Sum64()
+}
 
 func divmod(num, div int) (int, int) {
     return num / div, num % div
@@ -771,7 +782,49 @@ func neighborhood_33(board string, c int) string {
     return strings.Replace(board[c-W-1:c-W+2] + board[c-1:c+2] + board[c+W-1:c+W+2], "\n", " ", -1)
 }
 
+// large-scale pattern routines (those patterns living in patterns.{spat,prob} files)
 
+// are you curious how these patterns look in practice? get
+// https://github.com/pasky/pachi/blob/master/tools/pattern_spatial_show.pl
+// and try e.g. ./pattern_spatial_show.pl 71
+
+var spat_patterndict = make(map[uint64]int) // hash(neighborhood_gridcular()) -> spatial id
+
+// load dictionary of positions, translating them to numeric ids
+func load_spat_patterndict(f *os.File) {
+    scanner := bufio.NewScanner(f)
+    for scanner.Scan() {
+        line := scanner.Text()
+        // line: 71 6 ..X.X..OO.O..........#X...... 33408f5e 188e9d3e 2166befe aa8ac9e 127e583e 1282462e 5e3d7fe 51fc9ee
+        if strings.HasPrefix(line, "#") {
+            continue
+        }
+        neighborhood := strings.Replace(strings.Replace(strings.Split(line, " ")[2], "#", " ", -1), "O", "x", -1)
+        if id, err := strconv.ParseInt(strings.Split(line, " ")[0], 10, 0); err == nil {
+            spat_patterndict[HashString(neighborhood)] = int(id)
+        }
+    }
+}
+
+var large_patterns = make(map[int]float32) // spatial id -> probability
+
+// dictionary of numeric pattern ids, translating them to probabilities
+// that a move matching such move will be played when it is available
+func load_large_patterns(f *os.File) {
+    re := regexp.MustCompile("s:([0-9]+)")
+    scanner := bufio.NewScanner(f)
+    for scanner.Scan() {
+        line := scanner.Text()
+        // line: 0.004 14 3842 (capture:17 border:0 s:784)
+        if p, err := strconv.ParseFloat(strings.Split(line, " ")[0],32); err == nil {
+            if m := re.FindStringSubmatch(line); m != nil {
+                if s, err := strconv.ParseInt(m[1], 10, 0); err == nil {
+                    large_patterns[int(s)] = float32(p)
+                }
+            }
+        }
+    }
+}
 
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
