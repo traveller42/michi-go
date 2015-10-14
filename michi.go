@@ -826,6 +826,83 @@ func load_large_patterns(f *os.File) {
     }
 }
 
+// Yield progressively wider-diameter gridcular board neighborhood
+// stone configuration strings, in all possible rotations
+func neighborhood_gridcular(board string, c int, done chan bool) chan string {
+    ch := make(chan string)
+
+    go func() {
+        // Each rotations element is (xyindex, xymultiplier)
+        rotations := [][][]int{
+            {{0,1},{1,1}},
+            {{0,1},{-1,1}},
+            {{0,1},{1,-1}},
+            {{0,1},{-1,-1}},
+            {{1,0},{1,1}},
+            {{1,0},{-1,1}},
+            {{1,0},{1,-1}},
+            {{1,0},{-1,-1}},
+        }
+        wboard := strings.Replace(board, "\n", " ", -1)
+        for _, dseq := range(pat_gridcular_seq) {
+            for ri := 0; ri < len(rotations); ri++ {
+                r := rotations[ri]
+                neighborhood := ""
+                for _, o := range(dseq) {
+                    y, x := divmod(c - (W+1), W)
+                    y += o[r[0][0]]*r[1][0]
+                    x += o[r[0][1]]*r[1][1]
+                    if y >= 0 && y < N && x >= 0 && x < N {
+                        si := (y+1)*W + x+1
+                        neighborhood += wboard[si:si+1]
+                    } else {
+                        neighborhood += " "
+                    }
+                }
+                select {
+                    case ch <- neighborhood:
+                    case <-done:
+                        close(ch)
+                        return
+                }
+            }
+        }
+
+        close(ch)
+    }()
+    return ch
+}
+
+// return probability of large-scale pattern at coordinate c.
+// Multiple progressively wider patterns may match a single coordinate,
+// we consider the largest one.
+func large_pattern_probability(board string, c int) float32 {
+    probability := float32(-1)
+    matched_len := 0
+    non_matched_len := 0
+    done := make(chan bool)
+    for n := range(neighborhood_gridcular(board, c, done)) {
+        sp_i, good_sp_i := spat_patterndict[HashString(n)]
+        if good_sp_i {
+            prob, good_prob := large_patterns[sp_i]
+            if good_prob {
+                probability = prob
+                matched_len = len(n)
+                continue
+            }
+        }
+        if matched_len < non_matched_len && non_matched_len < len(n) {
+            // stop when we did not match any pattern with a certain
+            // diameter - it ain't going to get any better!
+            done <- true
+            break
+        }
+        non_matched_len = len(n)
+    }
+    close(done)
+    return probability
+}
+
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
     log.Println("Start")
