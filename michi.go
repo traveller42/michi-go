@@ -248,6 +248,15 @@ func intInSlice(intSlice []int, intTest int) bool {
     return false
 }
 
+func stringInSlice(strSlice []string, strTest string) bool {
+    for _, str := range strSlice {
+        if str == strTest {
+            return true
+        }
+    }
+    return false
+}
+
 // test for edge of board
 func IsSpace(str string) bool {
     return strings.ContainsAny(str, " \n")
@@ -901,6 +910,172 @@ func large_pattern_probability(board string, c int) float32 {
     }
     close(done)
     return probability
+}
+
+//##########################
+// montecarlo playout policy
+
+// Yield candidate next moves in the order of preference; this is one
+// of the main places where heuristics dwell, try adding more!
+//
+// heuristic_set is the set of coordinates considered for applying heuristics;
+// this is the immediate neighborhood of last two moves in the playout, but
+// the whole board while prioring the tree.
+// def gen_playout_moves(pos, heuristic_set, probs={'capture': 1, 'pat3': 1}, expensive_ok=False):
+type Result struct { intResult int
+                     strResult string}
+
+func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float32, expensive_ok bool) chan Result {
+    ch := make(chan Result)
+    var r Result
+
+    go func() {
+        // Check whether any local group is in atari and fill that liberty
+        // print('local moves', [str_coord(c) for c in heuristic_set], file=sys.stderr)
+        if rand.Float32() <= probs["capture"] {
+            already_suggested := []int{}
+            for _, c := range(heuristic_set) {
+                if strings.ContainsAny(pos.board[c:c+1], "Xx") {
+                    // in_atari, ds = fix_atari(pos, c, twolib_edgeonly=not expensive_ok)
+                    _, ds := fix_atari(pos, c, false, true, !(expensive_ok))
+                    Shuffle(ds)
+                    for _, d := range(ds) {
+                        if !(intInSlice(already_suggested, d)) {
+                            r.intResult = d
+                            r.strResult = "capture " + strconv.FormatInt(int64(c), 10)
+                            ch <- r
+                            already_suggested = append(already_suggested, d)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to apply a 3x3 pattern on the local neighborhood
+        if rand.Float32() <= probs["pat3"] {
+            already_suggested := []int{}
+            for _, c := range(heuristic_set) {
+                if pos.board[c:c+1] == "." && !(intInSlice(already_suggested, c)) && stringInSlice(pat3set, neighborhood_33(pos.board, c)) {
+                    r.intResult = c
+                    r.strResult = "pat3"
+                    ch <- r
+                    already_suggested = append(already_suggested, c)
+                }
+            }
+        }
+
+        // Try *all* available moves, but starting from a random point
+        // (in other words, suggest a random move)
+        x, y := rand.Intn(N-1)+1, rand.Intn(N-1)+1
+        for c := range(pos.moves(y*W + x)) {
+            r.intResult = c
+            r.strResult = "random"
+            ch <- r
+        }
+
+        close(ch)
+    }()
+    return ch
+}
+
+// Start a Monte Carlo playout from a given position,
+// return score for to-play player at the starting position;
+// amaf_map is board-sized scratchpad recording who played at a given
+// position first
+// def mcplayout(pos, amaf_map, disp=False):
+func mcplayout(pos Position, amaf_map map[int]int, disp bool) (float32, map[int]int, []int) {
+    var pos2 Position
+    var prob_reject float32
+    if disp {
+        fmt.Println(os.Stderr, "** SIMULATION **")
+    }
+    start_n := pos.n
+    passes := 0
+    for passes < 2 && pos.n < MAX_GAME_LEN {
+        if disp {
+            print_pos(pos, os.Stderr, nil)
+        }
+        pos2.n = -99
+        // We simply try the moves our heuristics generate, in a particular
+        // order, but not with 100% probability; this is on the border between
+        // "rule-based playouts" and "probability distribution playouts".
+        for r := range(gen_playout_moves(pos, pos.last_moves_neighbors(), PROB_HEURISTIC, false)) {
+            c := r.intResult
+            kind := r.strResult
+            if disp && kind != "random" {
+                fmt.Println(os.Stderr, "move suggestion", str_coord(c), kind)
+            }
+            pos2, err := pos.move(c)
+            if err != "ok" {
+                continue
+            }
+            // check if the suggested move did not turn out to be a self-atari
+            if kind == "random" {
+                prob_reject = PROB_RSAREJECT
+            } else {
+                prob_reject = PROB_SSAREJECT
+            }
+            if rand.Float32() <= prob_reject {
+                // in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
+                _, ds := fix_atari(pos2, c, true, true, true)
+                if len(ds) > 0 {
+                    if disp {
+                        fmt.Println(os.Stderr, "rejecting self-atari move", str_coord(c))
+                    }
+                    pos2.n = -99
+                    continue
+                }
+            }
+            if amaf_map[c] == 0 { // Mark the coordinate with 1 for black
+                if pos.n % 2 == 0 {
+                    amaf_map[c] = 1
+                } else {
+                    amaf_map[c] = -1
+                }
+            }
+            break
+        }
+        if pos2.n == -99 { // no valid moves, pass
+            pos, _ = pos.pass_move()
+            passes += 1
+            continue
+        }
+        passes = 0
+        pos = pos2
+    }
+    owner_map := make([]int, W*W)
+    score := pos.score(owner_map)
+    if disp {
+        if pos.n % 2 == 0 {
+            fmt.Fprintf(os.Stderr, "** SCORE B%+.1f **\n", score)
+        } else {
+            fmt.Fprintf(os.Stderr, "** SCORE B%+.1f **\n", -score)
+        }
+    }
+    if start_n % 2 != pos.n % 2 {
+        score = -score
+    }
+    return score, amaf_map, owner_map
+}
+
+//##################
+// user interface(s)
+
+// utility routines
+
+// print visualization of the given board position, optionally also
+// including an owner map statistic (probability of that area of board
+// eventually becoming black/white)
+func print_pos(pos Position, f *os.File, owner_map []int) {
+    return
+}
+
+func str_coord(c int) string {
+    if c == -1 {
+        return "pass"
+    }
+    row, col := divmod(c - (W+1), W)
+    return fmt.Sprintf("%c%d", colstr[col], N-row)
 }
 
 func main() {
