@@ -8,6 +8,7 @@ import (
     "fmt"
     "hash/fnv"
     "log"
+    "math"
     "math/rand"
     "os"
     "regexp"
@@ -1056,6 +1057,169 @@ func mcplayout(pos Position, amaf_map map[int]int, disp bool) (float32, map[int]
         score = -score
     }
     return score, amaf_map, owner_map
+}
+
+//#######################
+// montecarlo tree search
+
+// Monte-Carlo tree node;
+// v is #visits, w is #wins for to-play (expected reward is w/v)
+// pv, pw are prior values (node value = w/v + pw/pv)
+// av, aw are amaf values ("all moves as first", used for the RAVE tree policy)
+// children is None for leaf nodes
+type TreeNode struct {
+    pos Position
+    v int   // # of visits
+    w int   // # wins
+    pv int  // prior value of v
+    pw int  // prior value of w
+    av int
+    aw int
+    children []TreeNode
+}
+
+func NewTreeNode(pos Position) TreeNode {
+    var tn TreeNode
+    tn.pos = pos
+    tn.v = 0
+    tn.w = 0
+    tn.pv = PRIOR_EVEN
+    tn.pw = PRIOR_EVEN/2
+    tn.av = 0
+    tn.aw = 0
+    tn.children = []TreeNode{}
+    return tn
+}
+
+// add and initialize children to a leaf node
+func (tn TreeNode) expand() {
+    cfg_map := []int{}
+    if tn.pos.last != -1 {
+        cfg_map = append(cfg_map, cfg_distance(tn.pos.board, tn.pos.last)...)
+    }
+    tn.children = []TreeNode{}
+    childset := map[int]TreeNode{}
+    // Use playout generator to generate children and initialize them
+    // with some priors to bias search towards more sensible moves.
+    // Note that there can be many ways to incorporate the priors in
+    // next node selection (progressive bias, progressive widening, ...).
+    seed_set := []int{}
+    for i := N; i < (N+1)*W; i++ {
+        seed_set = append(seed_set, i)
+    }
+    for r:= range(gen_playout_moves(tn.pos, seed_set, map[string]float32{"capture": 1, "pat3": 1}, true)) {
+        c := r.intResult
+        kind := r.strResult
+        pos2, err := tn.pos.move(c)
+        if err != "ok" {
+            continue
+        }
+        // n_playout_moves() will generate duplicate suggestions
+        // if a move is yielded by multiple heuristics
+        node, ok := childset[pos2.last]
+        if !ok {
+            node = NewTreeNode(pos2)
+            tn.children = append(tn.children, node)
+            childset[pos2.last] = node
+        }
+
+        if strings.HasPrefix(kind, "capture") {
+            // Check how big group we are capturing; coord of the group is
+            // second word in the ``kind`` string
+            coord, _ := strconv.ParseInt(strings.Split(kind, " ")[1], 10, 32)
+            if strings.Count(floodfill(tn.pos.board, int(coord)), "#") > 1 {
+                node.pv += PRIOR_CAPTURE_MANY
+                node.pw += PRIOR_CAPTURE_MANY
+            } else {
+                node.pv += PRIOR_CAPTURE_ONE
+                node.pw += PRIOR_CAPTURE_ONE
+            }
+        } else if kind == "pat3" {
+            node.pv += PRIOR_PAT3
+            node.pw += PRIOR_PAT3
+        }
+    }
+
+    // Second pass setting priors, considering each move just once now
+    for _, node := range(tn.children) {
+        c := node.pos.last
+
+        if len(cfg_map) > 0 && cfg_map[c]-1 < len(PRIOR_CFG) {
+            node.pv += PRIOR_CFG[cfg_map[c]-1]
+            node.pw += PRIOR_CFG[cfg_map[c]-1]
+        }
+
+        height := line_height(c) // 0-indexed
+        // if height <= 2 and empty_area(self.pos.board, c):
+        if height <= 2 && empty_area(tn.pos.board, c, 3) {
+            // No stones around; negative prior for 1st + 2nd line, positive
+            // for 3rd line; sanitizes opening and invasions
+            if height <= 1 {
+                node.pv += PRIOR_EMPTYAREA
+                node.pw += 0
+            }
+            if height == 2 {
+                node.pv += PRIOR_EMPTYAREA
+                node.pw += PRIOR_EMPTYAREA
+            }
+        }
+
+        // in_atari, ds = fix_atari(node.pos, c, singlept_ok=True)
+        _, ds := fix_atari(node.pos, c, true, true, false)
+        if len(ds) > 0 {
+            node.pv += PRIOR_SELFATARI
+            node.pw += 0 // negative prior
+        }
+
+        patternprob := large_pattern_probability(tn.pos.board, c)
+        if patternprob > 0.001 {
+            pattern_prior := float32(math.Sqrt(float64(patternprob))) // tone up
+            node.pv += int(pattern_prior * PRIOR_LARGEPATTERN)
+            node.pw += int(pattern_prior * PRIOR_LARGEPATTERN)
+        }
+    }
+
+    if len(tn.children) == 0 {
+        // No possible moves, add a pass move
+        pass_pos, _ := tn.pos.pass_move()
+        tn.children = append(tn.children, NewTreeNode(pass_pos))
+    }
+}
+
+func (tn TreeNode) rave_urgency() float32 {
+    v := tn.v + tn.pv
+    expectation := float32(tn.w + tn.pw) / float32(v)
+    if tn.av == 0 {
+        return expectation
+    }
+    rave_expectation := float32(tn.aw) / float32(tn.av)
+    beta := float32(tn.av) / (float32(tn.av + v) + float32(v) * float32(tn.av) / RAVE_EQUIV)
+    return beta * rave_expectation + (1-beta) * expectation
+}
+
+func (tn TreeNode) winrate() float32 {
+    if tn.v > 0 {
+        return float32(tn.w) / float32(tn.v)
+    } else {
+        return float32(math.NaN())
+    }
+}
+
+// best move is the most simulated one
+func (tn TreeNode) best_move() (TreeNode, bool) {
+    var max_node TreeNode
+    if len(tn.children) == 0 {
+        return NewTreeNode(empty_position()), false
+    } else {
+        max_v := -1
+        for _, node := range(tn.children) {
+            if node.v > max_v {
+                max_v = node.v
+                max_node = node
+            }
+        }
+    }
+    return max_node, true
 }
 
 //##################
