@@ -231,8 +231,15 @@ func SwapCase(str string) string {
     return strings.Map(swapCase, str)
 }
 
-// create routine to replace random.shuffle() in Python
-func Shuffle(a []int) {
+// create routines to replace random.shuffle() in Python
+func ShuffleInt(a []int) {
+    for i := range a {
+        j := rand.Intn(i + 1)
+        a[i], a[j] = a[j], a[i]
+    }
+}
+
+func ShuffleTree(a []TreeNode) {
     for i := range a {
         j := rand.Intn(i + 1)
         a[i], a[j] = a[j], a[i]
@@ -440,7 +447,7 @@ func (p Position) last_moves_neighbors() []int {
         }
         // dlist = [c] + list(neighbors(c) + diag_neighbors(c))
         dlist = append([]int{c}, append(neighbors(c), diag_neighbors(c)...)...)
-        Shuffle(dlist)
+        ShuffleInt(dlist)
         // clist += [d for d in dlist if d not in clist]
         for _, d := range dlist {
             if intInSlice(clist, d) {
@@ -939,7 +946,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
                 if strings.ContainsAny(pos.board[c:c+1], "Xx") {
                     // in_atari, ds = fix_atari(pos, c, twolib_edgeonly=not expensive_ok)
                     _, ds := fix_atari(pos, c, false, true, !(expensive_ok))
-                    Shuffle(ds)
+                    ShuffleInt(ds)
                     for _, d := range(ds) {
                         if !(intInSlice(already_suggested, d)) {
                             r.intResult = d
@@ -1222,6 +1229,110 @@ func (tn TreeNode) best_move() (TreeNode, bool) {
     return max_node, true
 }
 
+// Descend through the tree to a leaf
+func tree_descend(tree TreeNode, amaf_map map[int]int, disp bool) []TreeNode {
+    tree.v += 1
+    nodes := []TreeNode{tree}
+    passes := 0
+    for len(nodes[len(nodes)-1].children) > 0 && passes < 2 {
+        if disp {
+            print_pos(nodes[len(nodes)-1].pos, os.Stderr, []int{})
+        }
+
+        // Pick the most urgent child
+        children := nodes[len(nodes)-1].children
+        if disp {
+            for _, c := range(children) {
+                // dump_subtree(c, recurse=False)
+                dump_subtree(c, N_SIMS/50, 0, os.Stderr, false)
+            }
+        }
+        ShuffleTree(children) // randomize the max in case of equal urgency
+
+        // node = max(children, key=lambda node: node.rave_urgency())
+        node := children[0]
+        max_rave := node.rave_urgency()
+        for _, c := range(children) {
+            test_rave := c.rave_urgency()
+            if test_rave > max_rave {
+                node = c
+                max_rave = test_rave
+            }
+        }
+        nodes = append(nodes, node)
+
+        if disp {
+            fmt.Fprintf(os.Stderr, "chosen %s\n", str_coord(node.pos.last))
+        }
+        if node.pos.last == -1 {
+            passes += 1
+        } else {
+            passes = 0
+            if amaf_map[node.pos.last] == 0 { // Mark the coordinate with 1 for black
+                // amaf_map[node.pos.last] = 1 if nodes[-2].pos.n % 2 == 0 else -1
+                if nodes[len(nodes)-2].pos.n % 2 == 0 {
+                    amaf_map[node.pos.last] = 1
+                } else {
+                    amaf_map[node.pos.last] = -1
+                }
+            }
+        }
+        // updating visits on the way *down* represents "virtual loss", relevant for parallelization
+        node.v += 1
+        if len(node.children) == 0 && node.v >= EXPAND_VISITS {
+            node.expand()
+        }
+    }
+    return nodes
+}
+
+// Store simulation result in the tree (@nodes is the tree path)
+// def tree_update(nodes, amaf_map, score, disp=False):
+func tree_update(nodes []TreeNode, amaf_map map[int]int, score float32, disp bool) {
+    local_nodes := []TreeNode{}
+    limit := len(nodes)
+    for i := 1; i <= limit; i++ {
+        local_nodes = append(local_nodes, nodes[limit-i])
+    }
+    for _, node := range(local_nodes) {
+        if disp {
+            fmt.Println(os.Stderr, "updating", str_coord(node.pos.last), score < 0)
+        }
+        win := 0
+        if score < 0 { // score is for to-play, node statistics for just-played
+            win = 1
+        }
+        node.w += win
+        // Update the node children AMAF stats with moves we made
+        // with their color
+        // amaf_map_value = 1 if node.pos.n % 2 == 0 else -1
+        amaf_map_value := 1
+        if node.pos.n % 2 != 0 {
+            amaf_map_value = -1
+        }
+        if len(node.children) > 0 {
+            for _, child := range(node.children) {
+                if child.pos.last == -1 {
+                    continue
+                }
+                if amaf_map[child.pos.last] == amaf_map_value {
+                    if disp {
+                        fmt.Println(os.Stderr, "  AMAF updating", str_coord(child.pos.last), score > 0)
+                    }
+                    // child.aw += score > 0
+                    win = 0
+                    if score > 0 { // reversed perspective
+                        win = 1
+                    }
+                    child.aw += win
+                    child.av += 1
+                }
+            }
+        }
+        score = -score
+    }
+}
+
 //##################
 // user interface(s)
 
@@ -1230,7 +1341,14 @@ func (tn TreeNode) best_move() (TreeNode, bool) {
 // print visualization of the given board position, optionally also
 // including an owner map statistic (probability of that area of board
 // eventually becoming black/white)
+// def print_pos(pos, f=sys.stderr, owner_map=None):
 func print_pos(pos Position, f *os.File, owner_map []int) {
+    return
+}
+
+// print this node and all its children with v >= thres.
+// def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
+func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
     return
 }
 
