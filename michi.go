@@ -12,8 +12,10 @@ import (
     "math/rand"
     "os"
     "regexp"
+    "runtime"
     "strconv"
     "strings"
+    "time"
 )
 
 // Given a board of size NxN (N=9, 19, ...), we represent the position
@@ -463,12 +465,12 @@ func (p Position) last_moves_neighbors() []int {
 // with all dead stones captured; if owner_map is passed, it is assumed
 // to be an array of statistics with average owner at the end of the game
 // (+1 black, -1 white)
-func (p Position) score(owner_map []int) float32 {
+func (p Position) score(owner_map []float32) float32 {
     board := p.board
     var fboard string
     var touches_X, touches_x bool
     var komi float32
-    var n int
+    var n float32
     i := 0
     for {
         i = strings.Index(p.board[i+1:], ".")
@@ -991,7 +993,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
 // amaf_map is board-sized scratchpad recording who played at a given
 // position first
 // def mcplayout(pos, amaf_map, disp=False):
-func mcplayout(pos Position, amaf_map map[int]int, disp bool) (float32, map[int]int, []int) {
+func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float32) {
     var pos2 Position
     var prob_reject float32
     if disp {
@@ -1051,7 +1053,7 @@ func mcplayout(pos Position, amaf_map map[int]int, disp bool) (float32, map[int]
         passes = 0
         pos = pos2
     }
-    owner_map := make([]int, W*W)
+    owner_map := make([]float32, W*W)
     score := pos.score(owner_map)
     if disp {
         if pos.n % 2 == 0 {
@@ -1230,13 +1232,13 @@ func (tn TreeNode) best_move() (TreeNode, bool) {
 }
 
 // Descend through the tree to a leaf
-func tree_descend(tree TreeNode, amaf_map map[int]int, disp bool) []TreeNode {
+func tree_descend(tree TreeNode, amaf_map []int, disp bool) []TreeNode {
     tree.v += 1
     nodes := []TreeNode{tree}
     passes := 0
     for len(nodes[len(nodes)-1].children) > 0 && passes < 2 {
         if disp {
-            print_pos(nodes[len(nodes)-1].pos, os.Stderr, []int{})
+            print_pos(nodes[len(nodes)-1].pos, os.Stderr, []float32{})
         }
 
         // Pick the most urgent child
@@ -1288,7 +1290,7 @@ func tree_descend(tree TreeNode, amaf_map map[int]int, disp bool) []TreeNode {
 
 // Store simulation result in the tree (@nodes is the tree path)
 // def tree_update(nodes, amaf_map, score, disp=False):
-func tree_update(nodes []TreeNode, amaf_map map[int]int, score float32, disp bool) {
+func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
     local_nodes := []TreeNode{}
     limit := len(nodes)
     for i := 1; i <= limit; i++ {
@@ -1333,6 +1335,128 @@ func tree_update(nodes []TreeNode, amaf_map map[int]int, score float32, disp boo
     }
 }
 
+// In original Python (not used in the Go translation)
+// worker_pool = None
+
+// Perform MCTS search from a given position for a given #iterations
+// def tree_search(tree, n, owner_map, disp=False):
+func tree_search(tree TreeNode, n int, owner_map []float32, disp bool) TreeNode {
+    // Initialize root node
+    if len(tree.children) == 0 {
+        tree.expand()
+    }
+
+    // We could simply run tree_descend(), mcplayout(), tree_update()
+    // sequentially in a loop.  This is essentially what the code below
+    // does, if it seems confusing!
+
+    // However, we also have an easy (though not optimal) way to parallelize
+    // by distributing the mcplayout() calls to other processes using the
+    // multiprocessing Python module.  mcplayout() consumes maybe more than
+    // 90% CPU, especially on larger boards.  (Except that with large patterns,
+    // expand() in the tree descent phase may be quite expensive - we can tune
+    // that tradeoff by adjusting the EXPAND_VISITS constant.)
+
+    n_workers := runtime.NumCPU()
+    if disp { // set to 1 when debugging
+        n_workers = 1
+    }
+
+    // global worker_pool
+    // if worker_pool is None:
+    //   worker_pool = Pool(processes=n_workers)
+
+    type Job struct {
+        nodes []TreeNode
+        amaf_map []int
+        owner_map []float32
+        score float32
+    }
+    type JobResult struct {
+        n int
+        job Job
+    }
+    jr := make(chan JobResult)
+    outgoing := []Job{}      // positions waiting for a playout
+    ongoing := map[int]Job{} // currently ongoing playout jobs
+    incoming := []Job{}      //positions that finished evaluation
+    i := 0
+    for i < n {
+        if len(outgoing) == 0 && !(disp && len(ongoing) > 0) {
+            // Descend the tree so that we have something ready when a worker
+            // stops being busy
+            amaf_map := make([]int, W*W)
+            nodes := tree_descend(tree, amaf_map, disp)
+            var job Job
+            job.nodes = nodes
+            job.amaf_map = amaf_map
+            outgoing = append(outgoing, job)
+        }
+
+        if len(ongoing) >= n_workers {
+            // Too many playouts running? Wait a bit...
+            time.Sleep(10 * time.Millisecond / time.Duration(n_workers))
+        } else {
+            i += 1
+            if i > 0 && i % REPORT_PERIOD == 0 {
+                print_tree_summary(tree, i, os.Stderr)
+            }
+
+            // Issue an mcplayout job to the worker pool
+            // nodes, amaf_map = outgoing.pop()
+            dispatch := outgoing[len(outgoing)-1]
+            outgoing = outgoing[:len(outgoing)-1]
+            jobnum := i
+            go func() {
+                var jobresult JobResult
+                jobresult.n = jobnum
+                jobresult.job = dispatch
+                jobresult.job.score, jobresult.job.amaf_map, jobresult.job.owner_map = mcplayout(jobresult.job.nodes[len(jobresult.job.nodes)-1].pos, jobresult.job.amaf_map, disp)
+                jr <- jobresult
+            }()
+            ongoing[jobnum] = dispatch
+        }
+
+        // Anything to store in the tree?  (We do this step out-of-order
+        // picking up data from the previous round so that we don't stall
+        // ready workers while we update the tree.)
+        for len(incoming) > 0 {
+            result := incoming[len(incoming)-1]
+            incoming = incoming[:len(incoming)-1]
+            tree_update(result.nodes, result.amaf_map, result.score, disp)
+            for c := 0; c < W*W; c++ {
+                owner_map[c] = result.owner_map[c]
+            }
+        }
+
+        // Any playouts are finished yet?
+        select {
+        case jobresult := <- jr: // Yes! Queue them up for storing in the tree.
+            incoming = append(incoming, jobresult.job)
+            delete(ongoing, jobresult.n)
+        default:
+        }
+
+        // Early stop test
+        best_move, ok := tree.best_move()
+        if ok {
+            best_wr:= best_move.winrate()
+            if (i > n/20 && best_wr > FASTPLAY5_THRES) || (i > n/5 && best_wr > FASTPLAY20_THRES) {
+                break
+            }
+        }
+    }
+    close(jr)
+
+    for c:= 0; c < W*W; c++ {
+        owner_map[c] = owner_map[c] / float32(i)
+    }
+    dump_subtree(tree, N_SIMS/50, 0, os.Stderr, true)
+    print_tree_summary(tree, i, os.Stderr)
+    best_move, _ := tree.best_move()
+    return best_move
+}
+
 //##################
 // user interface(s)
 
@@ -1342,13 +1466,18 @@ func tree_update(nodes []TreeNode, amaf_map map[int]int, score float32, disp boo
 // including an owner map statistic (probability of that area of board
 // eventually becoming black/white)
 // def print_pos(pos, f=sys.stderr, owner_map=None):
-func print_pos(pos Position, f *os.File, owner_map []int) {
+func print_pos(pos Position, f *os.File, owner_map []float32) {
     return
 }
 
 // print this node and all its children with v >= thres.
 // def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
 func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
+    return
+}
+
+// def print_tree_summary(tree, sims, f=sys.stderr):
+func print_tree_summary(tree TreeNode, sims int, f *os.File) {
     return
 }
 
