@@ -1467,18 +1467,135 @@ func tree_search(tree TreeNode, n int, owner_map []float32, disp bool) TreeNode 
 // eventually becoming black/white)
 // def print_pos(pos, f=sys.stderr, owner_map=None):
 func print_pos(pos Position, f *os.File, owner_map []float32) {
-    return
+    var Xcap, Ocap int
+    var board string
+    if pos.n % 2 == 0 { // to-play is black
+        board = strings.Replace(pos.board, "x", "O", -1)
+        Xcap, Ocap = pos.cap[0], pos.cap[1]
+    } else { // to-play is white
+        board = strings.Replace(strings.Replace(pos.board, "X", "O", -1), "x", "X", -1)
+        Ocap, Xcap = pos.cap[0], pos.cap[1]
+    }
+    fmt.Fprintf(f, "Move: %-3d   Black: %d caps   White: %d caps   Komi: %.1f\n", pos.n, Xcap, Ocap, pos.komi)
+    pretty_board := strings.TrimRight(board, " \n") + " "
+    if pos.last != -1 {
+        pretty_board = pretty_board[:pos.last*2-1] + "(" + board[pos.last:pos.last+1] + ")" + pretty_board[pos.last*2+2:]
+    }
+    pb := []string{}
+    for i, row := range(strings.Split(pretty_board, "\n")[1:]) {
+        row = fmt.Sprintf(" %-02d%s", N-i, row[2:])
+        pb = append(pb, row)
+    }
+    pretty_board = strings.Join(pb, "\n")
+    if len(owner_map) > 0 {
+        pretty_ownermap := ""
+        for c := 0; c < W*W; c++ {
+            if IsSpace(board[c:c+1]) {
+                pretty_ownermap += board[c:c+1]
+            } else if owner_map[c] > 0.6 {
+                pretty_ownermap += "X"
+            } else if owner_map[c] > 0.3 {
+                pretty_ownermap += "x"
+            } else if owner_map[c] < -0.6 {
+                pretty_ownermap += "O"
+            } else if owner_map[c] < -0.3 {
+                pretty_ownermap += "o"
+            } else {
+                pretty_ownermap += "."
+            }
+        }
+        pretty_ownermap = strings.TrimRight(pretty_ownermap, " \n")
+        pb2 := []string{}
+        for i, orow := range(strings.Split(pretty_ownermap, "\n")[1:]) {
+            row := fmt.Sprintf("%s  %s", pb[i-1], orow[2:])
+            pb2 = append(pb2, row)
+        }
+        pretty_board = strings.Join(pb2, "\n")
+    }
+    fmt.Println(f, pretty_board)
+    fmt.Println(f, "    " + colstr[:N])
+    fmt.Println(f, "")
+}
+
+// Sort a slice of TreeNode by the v field
+// Return with Max v
+func Best_Nodes(nodes []TreeNode) []TreeNode {
+    var i_max, v_max int
+
+    if len(nodes) == 1 {
+        return nodes
+    }
+    i_max = -1
+    v_max = -1
+    for i, node := range(nodes) {
+        if node.v > v_max {
+            i_max = i
+            v_max = node.v
+        }
+    }
+    best_nodes := []TreeNode{nodes[i_max]}
+    remaining_nodes := nodes[:i_max]
+    if i_max < len(nodes)-1 {
+        remaining_nodes = append(remaining_nodes, nodes[i_max+1:]...)
+    }
+    return append(best_nodes, Best_Nodes(remaining_nodes)...)
 }
 
 // print this node and all its children with v >= thres.
 // def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
 func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
-    return
+    var float_val float32
+    if node.av > 0 {
+        float_val = float32(node.aw)/float32(node.av)
+    } else{
+        float_val = float32(math.NaN())
+    }
+    fmt.Fprintf(f, "%s+- %s %.3f (%d/%d, prior %d/%d, rave %d/%d=%.3f, urgency %.3f)\n",
+                strings.Repeat(" ", indent), str_coord(node.pos.last), node.winrate(),
+                node.w, node.v, node.pw, node.pv, node.aw, node.av, float_val,
+                node.rave_urgency())
+    if !recurse {
+        return
+    }
+    children := node.children
+    for _, child := range(Best_Nodes(children)) {
+        if child.v >= thres {
+            dump_subtree(child, thres, indent+3, f, true)
+        }
+    }
 }
 
 // def print_tree_summary(tree, sims, f=sys.stderr):
 func print_tree_summary(tree TreeNode, sims int, f *os.File) {
-    return
+    var exists bool
+    best_nodes := Best_Nodes(tree.children)[:5]
+    best_seq := []int{}
+    node := tree
+    for {
+        best_seq = append(best_seq, node.pos.last)
+        node, exists = node.best_move()
+        if !exists { // no children of current node
+            break
+        }
+    }
+    seq_string := ""
+    for _, c := range(best_seq[1:6]) {
+        seq_string += str_coord(c) + " "
+    }
+    best_nodes_string := ""
+    for _, n := range(best_nodes) {
+        best_nodes_string += fmt.Sprintf("%s(%.3f) ", str_coord(n.pos.last), n.winrate())
+    }
+    fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s", sims, best_nodes[0].winrate(),
+                seq_string, best_nodes_string)
+}
+
+func parse_coord(s string) int {
+    if s == "pass" {
+        return -1
+    }
+    row, _ := strconv.ParseInt(s[1:], 10, 32)
+    return W+1 + (N - int(row) * W + strings.Index(colstr, strings.ToUpper(s[0:1])))
 }
 
 func str_coord(c int) string {
@@ -1487,6 +1604,18 @@ func str_coord(c int) string {
     }
     row, col := divmod(c - (W+1), W)
     return fmt.Sprintf("%c%d", colstr[col], N-row)
+}
+
+// various main programs
+
+// run n Monte-Carlo playouts from empty position, return avg. score
+func mcbenchmark(n int) float32 {
+    var sumscore float32
+    for i := 0; i < n; i++ {
+        score, _, _ := mcplayout(empty_position(), make([]int, W*W), false)
+        sumscore += score
+    }
+    return sumscore / float32(n)
 }
 
 func main() {
@@ -1504,6 +1633,10 @@ func main() {
     fmt.Println(p)
 
     fmt.Println(len(pat3set))
+
+    log.Println("MC Test Start")
+    fmt.Println(mcbenchmark(100))
+    log.Println("MC Test End")
 
     log.Println("End")
 }
