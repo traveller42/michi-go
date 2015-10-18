@@ -416,7 +416,6 @@ func (p Position) moves(i0 int) chan int {
         for {
             index := strings.Index(p.board[i+1:], ".")
             if passes > 0 && (index == -1 || i+index >= i0) {
-                close(c)
                 break // we have looked through the whole board
             }
             if index == -1 {
@@ -424,7 +423,7 @@ func (p Position) moves(i0 int) chan int {
                 passes += 1
                 continue // go back and start from the beginning
             }
-            i += index
+            i += index + 1
             // Test for to-play player's one-point eye
             if is_eye(p.board, i) == "X" {
                 continue
@@ -553,12 +552,11 @@ func empty_position() Position {
 // even in the playouts
 // def fix_atari(pos, c, singlept_ok=False, twolib_test=True, twolib_edgeonly=False):
 func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bool) (bool, []int) {
-
     // check if a capturable ladder is being pulled out at c and return
     // a move that continues it in that case; expects its two liberties as
     // l1, l2  (in fact, this is a general 2-lib capture exhaustive solver)
     read_ladder_attack := func(pos Position, c, l1, l2 int) int {
-        for l := range([]int{l1, l2}) {
+        for _, l := range([]int{l1, l2}) {
             pos_l, pos_err := pos.move(l)
             if pos_err != "ok" {
                 continue
@@ -853,6 +851,7 @@ func neighborhood_gridcular(board string, c int, done chan bool) chan string {
     ch := make(chan string)
 
     go func() {
+        defer close(ch)
         // Each rotations element is (xyindex, xymultiplier)
         rotations := [][][]int{
             {{0,1},{1,1}},
@@ -883,13 +882,11 @@ func neighborhood_gridcular(board string, c int, done chan bool) chan string {
                 select {
                     case ch <- neighborhood:
                     case <-done:
-                        close(ch)
                         return
                 }
             }
         }
-
-        close(ch)
+        // close(ch) deferred on entry to go func()
     }()
     return ch
 }
@@ -996,10 +993,11 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
 // position first
 // def mcplayout(pos, amaf_map, disp=False):
 func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float32) {
+    var err string
     var pos2 Position
     var prob_reject float32
     if disp {
-        fmt.Println(os.Stderr, "** SIMULATION **")
+        fmt.Fprintln(os.Stderr, "** SIMULATION **")
     }
     start_n := pos.n
     passes := 0
@@ -1015,10 +1013,11 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             c := r.intResult
             kind := r.strResult
             if disp && kind != "random" {
-                fmt.Println(os.Stderr, "move suggestion", str_coord(c), kind)
+                fmt.Fprintln(os.Stderr, "move suggestion", str_coord(c), kind)
             }
-            pos2, err := pos.move(c)
+            pos2, err = pos.move(c)
             if err != "ok" {
+                pos2.n=-99
                 continue
             }
             // check if the suggested move did not turn out to be a self-atari
@@ -1029,10 +1028,10 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             }
             if rand.Float32() <= prob_reject {
                 // in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
-                _, ds := fix_atari(pos2, c, true, true, true)
-                if len(ds) > 0 {
+                in_atari, _ := fix_atari(pos2, c, true, true, true)
+                if in_atari {
                     if disp {
-                        fmt.Println(os.Stderr, "rejecting self-atari move", str_coord(c))
+                        fmt.Fprintln(os.Stderr, "rejecting self-atari move", str_coord(c))
                     }
                     pos2.n = -99
                     continue
@@ -1176,8 +1175,8 @@ func (tn TreeNode) expand() {
         }
 
         // in_atari, ds = fix_atari(node.pos, c, singlept_ok=True)
-        _, ds := fix_atari(node.pos, c, true, true, false)
-        if len(ds) > 0 {
+        in_atari, _ := fix_atari(node.pos, c, true, true, false)
+        if in_atari {
             node.pv += PRIOR_SELFATARI
             node.pw += 0 // negative prior
         }
@@ -1300,7 +1299,7 @@ func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
     }
     for _, node := range(local_nodes) {
         if disp {
-            fmt.Println(os.Stderr, "updating", str_coord(node.pos.last), score < 0)
+            fmt.Fprintln(os.Stderr, "updating", str_coord(node.pos.last), score < 0)
         }
         win := 0
         if score < 0 { // score is for to-play, node statistics for just-played
@@ -1321,7 +1320,7 @@ func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
                 }
                 if amaf_map[child.pos.last] == amaf_map_value {
                     if disp {
-                        fmt.Println(os.Stderr, "  AMAF updating", str_coord(child.pos.last), score > 0)
+                        fmt.Fprintln(os.Stderr, "  AMAF updating", str_coord(child.pos.last), score > 0)
                     }
                     // child.aw += score > 0
                     win = 0
@@ -1479,12 +1478,12 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
         Ocap, Xcap = pos.cap[0], pos.cap[1]
     }
     fmt.Fprintf(f, "Move: %-3d   Black: %d caps   White: %d caps   Komi: %.1f\n", pos.n, Xcap, Ocap, pos.komi)
-    pretty_board := strings.TrimRight(board, " \n") + " "
+    pretty_board := strings.Join(strings.Split(board, ""), " ")
     if pos.last != -1 {
         pretty_board = pretty_board[:pos.last*2-1] + "(" + board[pos.last:pos.last+1] + ")" + pretty_board[pos.last*2+2:]
     }
     pb := []string{}
-    for i, row := range(strings.Split(pretty_board, "\n")[1:]) {
+    for i, row := range(strings.Split(pretty_board, "\n")[1:N+1]) {
         row = fmt.Sprintf(" %-02d%s", N-i, row[2:])
         pb = append(pb, row)
     }
@@ -1508,15 +1507,15 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
         }
         pretty_ownermap = strings.TrimRight(pretty_ownermap, " \n")
         pb2 := []string{}
-        for i, orow := range(strings.Split(pretty_ownermap, "\n")[1:]) {
+        for i, orow := range(strings.Split(pretty_ownermap, "\n")[1:N+1]) {
             row := fmt.Sprintf("%s  %s", pb[i-1], orow[2:])
             pb2 = append(pb2, row)
         }
         pretty_board = strings.Join(pb2, "\n")
     }
-    fmt.Println(f, pretty_board)
-    fmt.Println(f, "    " + colstr[:N])
-    fmt.Println(f, "")
+    fmt.Fprintln(f, pretty_board)
+    fmt.Fprintln(f, "    " + strings.Join(strings.Split(colstr[:N], ""), " "))
+    fmt.Fprintln(f, "")
 }
 
 // Sort a slice of TreeNode by the v field
@@ -1631,14 +1630,15 @@ func main() {
     fmt.Println(neighbors(23))
     fmt.Println(diag_neighbors(23))
 
-    p := empty_position()
-    fmt.Println(p)
+//    print_pos(empty_position(), os.Stderr, []float32{})
 
-    fmt.Println(len(pat3set))
+//    log.Println("MC Test Start")
+//    mcplayout(empty_position(), make([]int, W*W), true)
+//    log.Println("MC Test End")
 
-    log.Println("MC Test Start")
+    log.Println("MC Benchmark Start")
     fmt.Println(mcbenchmark(100))
-    log.Println("MC Test End")
+    log.Println("MC Benchmark End")
 
     log.Println("End")
 }
