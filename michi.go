@@ -1102,7 +1102,7 @@ func NewTreeNode(pos Position) TreeNode {
 }
 
 // add and initialize children to a leaf node
-func (tn TreeNode) expand() {
+func (tn *TreeNode) expand() {
     cfg_map := []int{}
     if tn.pos.last != -1 {
         cfg_map = append(cfg_map, cfg_distance(tn.pos.board, tn.pos.last)...)
@@ -1569,7 +1569,12 @@ func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
 // def print_tree_summary(tree, sims, f=sys.stderr):
 func print_tree_summary(tree TreeNode, sims int, f *os.File) {
     var exists bool
-    best_nodes := Best_Nodes(tree.children)[:5]
+    var best_nodes []TreeNode
+    if len(tree.children) < 5 {
+        best_nodes = Best_Nodes(tree.children)
+    } else {
+        best_nodes = Best_Nodes(tree.children)[:5]
+    }
     best_seq := []int{}
     node := tree
     for {
@@ -1580,15 +1585,23 @@ func print_tree_summary(tree TreeNode, sims int, f *os.File) {
         }
     }
     seq_string := ""
-    for _, c := range(best_seq[1:6]) {
-        seq_string += str_coord(c) + " "
+    if len(best_seq) < 6 {
+        for _, c := range(best_seq) {
+            seq_string += str_coord(c) + " "
+        }
+    } else {
+        for _, c := range(best_seq[1:6]) {
+            seq_string += str_coord(c) + " "
+        }
     }
     best_nodes_string := ""
     for _, n := range(best_nodes) {
         best_nodes_string += fmt.Sprintf("%s(%.3f) ", str_coord(n.pos.last), n.winrate())
     }
-    fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s", sims, best_nodes[0].winrate(),
-                seq_string, best_nodes_string)
+    if len(best_nodes) > 0 {
+            fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s", sims, best_nodes[0].winrate(),
+                        seq_string, best_nodes_string)
+        }
 }
 
 func parse_coord(s string) int {
@@ -1596,7 +1609,9 @@ func parse_coord(s string) int {
         return -1
     }
     row, _ := strconv.ParseInt(s[1:], 10, 32)
-    return W+1 + (N - int(row) * W + strings.Index(colstr, strings.ToUpper(s[0:1])))
+    col := 1 + strings.Index(colstr, strings.ToUpper(s[0:1]))
+    c := W + (N - int(row)) * W + col
+    return c
 }
 
 func str_coord(c int) string {
@@ -1633,6 +1648,7 @@ func game_io(computer_black bool) {
             // sc = raw_input("Your move: ")
             fmt.Print("Your move: ")
             sc, _ := reader.ReadString('\n')
+            sc = strings.TrimRight(sc, " \n")
             c := parse_coord(sc)
             if c != -1 {
                 // Not a pass
@@ -1697,6 +1713,7 @@ func main() {
     fmt.Println(neighbors(23))
     fmt.Println(diag_neighbors(23))
 
+    print_pos(empty_position(), os.Stderr, []float32{})
     print_pos(empty_position(), os.Stderr, make([]float32, W*W))
 
 //    log.Println("MC Test Start")
