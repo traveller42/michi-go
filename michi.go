@@ -1490,7 +1490,7 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
     pretty_board = strings.Join(pb, "\n")
     if len(owner_map) > 0 {
         pretty_ownermap := ""
-        for c := 0; c < W*W; c++ {
+        for c := 0; c < W*W-1; c++ {
             if IsSpace(board[c:c+1]) {
                 pretty_ownermap += board[c:c+1]
             } else if owner_map[c] > 0.6 {
@@ -1505,10 +1505,10 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
                 pretty_ownermap += "."
             }
         }
-        pretty_ownermap = strings.TrimRight(pretty_ownermap, " \n")
+        pretty_ownermap = strings.Join(strings.Split(pretty_ownermap, ""), " ")
         pb2 := []string{}
         for i, orow := range(strings.Split(pretty_ownermap, "\n")[1:N+1]) {
-            row := fmt.Sprintf("%s  %s", pb[i-1], orow[2:])
+            row := fmt.Sprintf("%s  %s", pb[i], orow[1:])
             pb2 = append(pb2, row)
         }
         pretty_board = strings.Join(pb2, "\n")
@@ -1619,6 +1619,73 @@ func mcbenchmark(n int) float32 {
     return sumscore / float32(n)
 }
 
+// A simple minimalistic text mode UI.
+// def game_io(computer_black=False)
+func game_io(computer_black bool) {
+    reader := bufio.NewReader(os.Stdin)
+    tree := NewTreeNode(empty_position())
+    tree.expand()
+    owner_map := make([]float32, W*W)
+    for {
+        if !(tree.pos.n == 0 && computer_black) {
+            print_pos(tree.pos, os.Stdout, owner_map)
+
+            // sc = raw_input("Your move: ")
+            fmt.Print("Your move: ")
+            sc, _ := reader.ReadString('\n')
+            c := parse_coord(sc)
+            if c != -1 {
+                // Not a pass
+                if tree.pos.board[c:c+1] != "." {
+                    fmt.Println("Bad move (not empty point)")
+                    continue
+                }
+
+                // Find the next node in the game tree and proceed there
+                // nodes = filter(lambda n: n.pos.last == c, tree.children)
+                nodes := []TreeNode{}
+                for _, node := range(tree.children) {
+                    if node.pos.last == c {
+                        nodes = append(nodes, node)
+                    }
+                }
+                if len(nodes) == 0 {
+                    fmt.Println("Bad move (rule violation)")
+                    continue
+                }
+                tree = nodes[0]
+            } else {
+                // Pass move
+                if tree.children[0].pos.n == -1 {
+                    tree = tree.children[0]
+                } else {
+                    pos, _ := tree.pos.pass_move()
+                    tree = NewTreeNode(pos)
+                }
+            }
+            // print_pos(tree.pos)
+            print_pos(tree.pos, os.Stdout, owner_map)
+        }
+
+        owner_map = make([]float32, W*W)
+        // tree = tree_search(tree, N_SIMS, owner_map)
+        tree = tree_search(tree, N_SIMS, owner_map, false)
+        if tree.pos.last == -1 && tree.pos.last2 == -1 {
+            score := tree.pos.score(owner_map)
+            if tree.pos.n % 2 == 1 {
+                score = -score
+            }
+            fmt.Printf("Game over, score: B%+.1f\n", score)
+            break
+        }
+        if float32(tree.w)/float32(tree.v) < RESIGN_THRES {
+            fmt.Println("I resign.")
+            break
+        }
+    }
+    fmt.Println("Thank you for the game!")
+}
+
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
     log.Println("Start")
@@ -1630,15 +1697,18 @@ func main() {
     fmt.Println(neighbors(23))
     fmt.Println(diag_neighbors(23))
 
-//    print_pos(empty_position(), os.Stderr, []float32{})
+    print_pos(empty_position(), os.Stderr, make([]float32, W*W))
 
 //    log.Println("MC Test Start")
 //    mcplayout(empty_position(), make([]int, W*W), true)
 //    log.Println("MC Test End")
 
-    log.Println("MC Benchmark Start")
-    fmt.Println(mcbenchmark(100))
-    log.Println("MC Benchmark End")
+//    log.Println("MC Benchmark Start")
+//    fmt.Println(mcbenchmark(10))
+//    log.Println("MC Benchmark End")
+
+    game_io(false)
+//    game_io(true)
 
     log.Println("End")
 }
