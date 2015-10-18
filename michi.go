@@ -414,16 +414,17 @@ func (p Position) moves(i0 int) chan int {
         i := i0 - 1
         passes := 0
         for {
-            i = strings.Index(p.board[i+1:], ".")
-            if passes > 0 && (i==-1 || i >= i0) {
+            index := strings.Index(p.board[i+1:], ".")
+            if passes > 0 && (index == -1 || i+index >= i0) {
                 close(c)
                 break // we have looked through the whole board
             }
-            if i == -1 {
+            if index == -1 {
                 i = 0
                 passes += 1
                 continue // go back and start from the beginning
             }
+            i += index
             // Test for to-play player's one-point eye
             if is_eye(p.board, i) == "X" {
                 continue
@@ -473,10 +474,11 @@ func (p Position) score(owner_map []float32) float32 {
     var n float32
     i := 0
     for {
-        i = strings.Index(p.board[i+1:], ".")
-        if i == -1 {
+        index := strings.Index(p.board[i+1:], ".")
+        if index == -1 {
             break
         }
+        i += index + 1
         fboard = floodfill(board, i)
         // fboard is board with some continuous area of empty space replaced by #
         touches_X = contact(fboard, "X") != -1
