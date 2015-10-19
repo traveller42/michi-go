@@ -1599,7 +1599,7 @@ func print_tree_summary(tree TreeNode, sims int, f *os.File) {
         best_nodes_string += fmt.Sprintf("%s(%.3f) ", str_coord(n.pos.last), n.winrate())
     }
     if len(best_nodes) > 0 {
-            fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s", sims, best_nodes[0].winrate(),
+            fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s\n", sims, best_nodes[0].winrate(),
                         seq_string, best_nodes_string)
         }
 }
@@ -1702,30 +1702,190 @@ func game_io(computer_black bool) {
     fmt.Println("Thank you for the game!")
 }
 
+// GTP interface for our program.  We can play only on the board size
+// which is configured (N), and we ignore color information and assume
+// alternating play!
+func gtp_io()  {
+    gtp_in := bufio.NewScanner(os.Stdin)
+    known_commands := []string{"boardsize", "clear_board", "komi", "play",
+                               "genmove", "final_score", "quit", "name",
+                               "version", "known_command", "list_commands",
+                               "protocol_version", "tsdebug"}
+
+    tree := NewTreeNode(empty_position())
+    tree.expand()
+
+    for gtp_in.Scan(){
+        line := gtp_in.Text()
+        line = strings.TrimRight(line, " \n")
+        if line == "" {
+            continue
+        }
+        line = strings.ToLower(line)
+        command := strings.Split(line, " ")
+        cmdid := ""
+        matched, _ := regexp.MatchString("\\d+", command[0])
+        if  matched {
+            cmdid = command[0]
+            command = command[1:]
+        }
+        owner_map := make([]float32, W*W)
+        ret := ""
+        if command[0] == "boardsize" {
+            size, _ := strconv.ParseInt(command[1], 10, 0)
+            if int(size) != N {
+                fmt.Fprintf(os.Stderr, "Warning: Trying to set incompatible boardsize %s (!= %d)\n", command[0], N)
+            }
+        } else if command[0] == "clear_board" {
+            tree = NewTreeNode(empty_position())
+            tree.expand()
+        } else if command[0] == "komi" {
+            // XXX: can we do this nicer?!
+            // Python version:
+            // tree.pos = Position(board=tree.pos.board, cap=(tree.pos.cap[0], tree.pos.cap[1]),
+            //                     n=tree.pos.n, ko=tree.pos.ko, last=tree.pos.last, last2=tree.pos.last2,
+            //                     komi=float(command[1]))
+            komi, err := strconv.ParseFloat(command[1], 32)
+            if err == nil {
+                tree.pos.komi = float32(komi)
+            }
+        } else if command[0] == "play" {
+            c := parse_coord(command[2])
+            if c != -1 {
+                // Find the next node in the game tree and proceed there
+                // if tree.children is not None and filter(lambda n: n.pos.last == c, tree.children):
+                //     tree = filter(lambda n: n.pos.last == c, tree.children)[0]
+                // else:
+                //     # Several play commands in row, eye-filling move, etc.
+                //    tree = TreeNode(pos=tree.pos.move(c))
+                nodes := []TreeNode{}
+                if len(tree.children) > 0 {
+                    for _, node := range(tree.children) {
+                        if node.pos.last == c {
+                            nodes = append(nodes, node)
+                        }
+                    }
+                }
+                pos, err := tree.pos.move(c)
+                if err == "ok" {
+                    tree = NewTreeNode(pos)
+                } else {
+                    fmt.Fprintln(os.Stderr, "Error updating sent move:", err)
+                }
+            } else {
+                // Pass move
+                if len(tree.children) > 0 && tree.children[0].pos.last == -1 {
+                    tree = tree.children[0]
+                } else {
+                    pos, _ := tree.pos.pass_move()
+                    tree = NewTreeNode(pos)
+                }
+            }
+        } else if command[0] == "genmove" {
+            tree = tree_search(tree, N_SIMS, owner_map, false)
+            if tree.pos.last == -1 {
+                ret = "pass"
+            } else if tree.v > 0 && float32(tree.w)/float32(tree.v) < RESIGN_THRES {
+                ret = "resign"
+            } else {
+                ret = str_coord(tree.pos.last)
+            }
+        } else if command[0] == "final_score" {
+            score := tree.pos.score([]float32{})
+            if tree.pos.n % 2 == 1 {
+                score = -score
+            }
+            if score == 0 {
+                ret = "0"
+            } else if score > 0 {
+                ret = fmt.Sprintf("B+%.1f", score)
+            } else if score < 0 {
+                ret = fmt.Sprintf("W+%.1f", -score)
+            }
+        } else if command[0] == "name" {
+            ret = "michi-go"
+        } else if command[0] == "version" {
+            ret = "simple go program demo (in Go!)"
+        } else if command[0] == "tsdebug" {
+            print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, []float32{})
+        } else if command[0] == "list_commands" {
+            ret = strings.Join(known_commands, "\n")
+        } else if command[0] == "known_command" {
+            ret = "false"
+            for _, known := range(known_commands) {
+                if command[1] == known {
+                    ret = "true"
+                    break
+                }
+            }
+        } else if command[0] == "protocol_version" {
+            ret = "2"
+        } else if command[0] == "quit" {
+            fmt.Printf("=%s \n\n", cmdid)
+            break
+        } else {
+            fmt.Fprintln(os.Stderr, "Warning: Ignoring unknown command -", line)
+            ret = "None"
+        }
+
+        print_pos(tree.pos, os.Stderr, owner_map)
+        if ret != "None" {
+            fmt.Printf("=%s %s\n\n", cmdid, ret)
+        } else {
+            fmt.Printf("?%s ???\n\n", cmdid)
+        }
+    }
+}
+
 func main() {
     log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
     log.Println("Start")
+    pattern_load_error := false
+    f, err := os.Open(spat_patterndict_file)
+    if err == nil {
+        fmt.Fprintln(os.Stderr, "Loading pattern spatial dictionary...")
+        load_spat_patterndict(f)
+    } else {
+        pattern_load_error = true
+        fmt.Fprintln(os.Stderr, "Error opening ", spat_patterndict_file, err)
+    }
+    f, err = os.Open(large_patterns_file)
+    if err == nil {
+        fmt.Fprintln(os.Stderr, "Loading large patterns...")
+        load_large_patterns(f)
+    } else {
+        pattern_load_error = true
+        fmt.Fprintln(os.Stderr, "Error opening ", large_patterns_file, err)
+    }
+    if pattern_load_error {
+        fmt.Fprintln(os.Stderr, "Warning: Cannot load pattern files; will be much weaker, consider lowering EXPAND_VISITS 5->2")
+    } else {
+        fmt.Fprintln(os.Stderr, "Done.")
+    }
 
-    fmt.Printf("%T %v\n", N, N)
-    fmt.Printf("%T %v\n", W, W)
-    fmt.Println(empty)
-
-    fmt.Println(neighbors(23))
-    fmt.Println(diag_neighbors(23))
-
-    print_pos(empty_position(), os.Stderr, []float32{})
-    print_pos(empty_position(), os.Stderr, make([]float32, W*W))
-
-//    log.Println("MC Test Start")
-//    mcplayout(empty_position(), make([]int, W*W), true)
-//    log.Println("MC Test End")
-
-//    log.Println("MC Benchmark Start")
-//    fmt.Println(mcbenchmark(10))
-//    log.Println("MC Benchmark End")
-
-    game_io(false)
-//    game_io(true)
-
+    if len(os.Args) < 2 {
+        // Default action
+        game_io(false)
+    } else if os.Args[1] == "white" {
+        game_io(true)
+    } else if os.Args[1] == "gtp" {
+        gtp_io()
+    } else if os.Args[1] == "mcdebug" {
+        score, _, _ := mcplayout(empty_position(), make([]int, W*W), true)
+        fmt.Println(score)
+    } else if os.Args[1] == "mcbenchmark" {
+        fmt.Println(mcbenchmark(20))
+    } else if os.Args[1] == "tsbenchmark" {
+        t_start := time.Now()
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), false).pos, os.Stderr, []float32{})
+        t_end := time.Now()
+        fmt.Printf("Tree search with %d playouts took %s with %d threads; speed is %.3f playouts/thread/s\n",
+                   N_SIMS, t_end.Sub(t_start).String(), runtime.GOMAXPROCS(0),
+                   float64(N_SIMS) / (t_end.Sub(t_start).Seconds() * float64(runtime.GOMAXPROCS(0))))
+    } else if os.Args[1] == "tsdebug" {
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), true).pos, os.Stderr, []float32{})
+    } else {
+        fmt.Fprintln(os.Stderr, "Unknown action")
+    }
     log.Println("End")
 }
