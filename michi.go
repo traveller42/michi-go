@@ -912,7 +912,6 @@ func large_pattern_probability(board string, c int) float32 {
         if matched_len < non_matched_len && non_matched_len < len(n) {
             // stop when we did not match any pattern with a certain
             // diameter - it ain't going to get any better!
-            done <- true
             break
         }
         non_matched_len = len(n)
@@ -1447,6 +1446,10 @@ func tree_search(tree TreeNode, n int, owner_map []float32, disp bool) TreeNode 
             }
         }
     }
+    for len(ongoing) > 0 { // drain any pending background jobs
+        jobresult := <-jr
+        delete(ongoing, jobresult.n)
+    }
     close(jr)
 
     for c:= 0; c < W*W; c++ {
@@ -1566,8 +1569,19 @@ func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
     }
 }
 
+func print_debug(tree TreeNode, depth int) {
+    indent := strings.Repeat(" ", depth)
+    fmt.Fprintf(os.Stderr, "%s%3d: %3d %3d %3d | %d/%d %d/%d %d/%d | %d\n", indent, tree.pos.n, tree.pos.last, tree.pos.last2, tree.pos.ko,
+                tree.pw, tree.pv, tree.w, tree.v, tree.aw, tree.av, len(tree.children))
+    for _, child := range(tree.children) {
+        print_debug(child, depth+2)
+    }
+}
+
 // def print_tree_summary(tree, sims, f=sys.stderr):
 func print_tree_summary(tree TreeNode, sims int, f *os.File) {
+    log.Println("print_tree_summary(): ", sims)
+    print_debug(tree, 0)
     var exists bool
     var best_nodes []TreeNode
     if len(tree.children) < 5 {
