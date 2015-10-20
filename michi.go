@@ -34,6 +34,8 @@ var empty = strings.Repeat(" ", N+1) + "\n" +
 const (
     colstr = "ABCDEFGHJKLMNOPQRST"
     MAX_GAME_LEN = N * N * 3
+    PASS = -1346458457  // 'P','A','S','S' 0x50415353
+    NONE = -1313820229  // 'N','O','N','E' 0x4e4f4e45
 )
 
 const (
@@ -195,7 +197,7 @@ func contact(board, p string) int {
     // m = contact_res[p].search(board)
     m := contact_res[p].FindStringIndex(board)
     if m == nil {
-        return -1
+        return NONE
     }
     // return m.start() if m.group(0)[0] == p else m.end() - 1
     if board[m[0]:m[0]+1] == p {
@@ -358,7 +360,7 @@ func (p Position) move(c int) (Position, string) {
         // at things - to do it properly, we should maintain some per-group
         // data structures tracking liberties.
         fboard := floodfill(board, d) // get a board with the adjacent group replaced by '#'
-        if contact(fboard, ".") != -1 {
+        if contact(fboard, ".") != NONE {
             continue  // some liberties left
         }
         // no liberties left for this group, remove the stones!
@@ -370,12 +372,12 @@ func (p Position) move(c int) (Position, string) {
         board = strings.Replace(fboard, "#", ".", -1) // capture the group
     }
     // set ko
-    ko := -1
+    ko := NONE
     if in_enemy_eye && len(singlecaps) == 1 {
         ko = singlecaps[0]
     }
     // Test for suicide
-    if contact(floodfill(board, c), ".") == -1 {
+    if contact(floodfill(board, c), ".") == NONE {
         return p, "suicide"
     }
 
@@ -396,9 +398,9 @@ func (p Position) pass_move() (Position, string) {
     p.board = SwapCase(p.board)
     p.cap = []int{p.cap[1], p.cap[0]}
     p.n = p.n + 1
-    p.ko = -1
+    p.ko = NONE
     p.last2 = p.last // must copy first
-    p.last = -1
+    p.last = PASS
     p.komi = p.komi
 
     return p, "ok"
@@ -444,7 +446,7 @@ func (p Position) last_moves_neighbors() []int {
     clist := []int{}
     dlist := []int{}
     for _, c := range []int{p.last, p.last2} {
-        if c == -1 {
+        if c < 0 { // if there was no last move, or pass
             continue
         }
         // dlist = [c] + list(neighbors(c) + diag_neighbors(c))
@@ -480,8 +482,8 @@ func (p Position) score(owner_map []float32) float32 {
         i += index + 1
         fboard = floodfill(board, i)
         // fboard is board with some continuous area of empty space replaced by #
-        touches_X = contact(fboard, "X") != -1
-        touches_x = contact(fboard, "x") != -1
+        touches_X = contact(fboard, "X") != NONE
+        touches_x = contact(fboard, "x") != NONE
         if touches_X && !touches_x {
             board = strings.Replace(fboard, "#", "X", -1)
         } else if touches_x && !touches_X {
@@ -522,9 +524,9 @@ func empty_position() Position {
     p.board = empty
     p.cap = []int{0, 0}
     p.n = 0
-    p.ko = -1
-    p.last = -1
-    p.last2 = -1
+    p.ko = NONE
+    p.last = NONE
+    p.last2 = NONE
     p.komi = 7.5
 
     return p
@@ -569,7 +571,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
                 return l
             }
         }
-        return -1
+        return NONE
     }
 
     fboard := floodfill(pos.board, c)
@@ -582,11 +584,11 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     // Ok, any other liberty?
     fboard = board_put(fboard, l, "L")
     l2 := contact(fboard, ".")
-    if l2 != -1 {
+    if l2 != NONE {
         // At least two liberty group...
         if twolib_test && group_size > 1 &&
            (!twolib_edgeonly || line_height(l) == 0 && line_height(l2) == 0) &&
-           contact(board_put(fboard, l2, "L"), ".") == -1 {
+           contact(board_put(fboard, l2, "L"), ".") == NONE {
             // Exactly two liberty group with more than one stone.  Check
             // that it cannot be caught in a working ladder; if it can,
             // that's as good as in atari, a capture threat.
@@ -611,7 +613,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     ccboard := fboard
     for {
         othergroup := contact(ccboard, "x")
-        if othergroup == -1 {
+        if othergroup == NONE {
             break
         }
         // a, ccls = fix_atari(pos, othergroup, twolib_test=False)
@@ -633,10 +635,10 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     l_new := contact(fboard, ".")
     fboard = board_put(fboard, l_new, "L")
     l_new_2 := contact(fboard, ".")
-    if l_new_2 != -1 {
+    if l_new_2 != NONE {
         if len(solutions) > 0 ||
-           !(contact(board_put(fboard, l_new_2, "L"), ".") == -1 &&
-             read_ladder_attack(escpos, l, l_new, l_new_2) != -1) {
+           !(contact(board_put(fboard, l_new_2, "L"), ".") == NONE &&
+             read_ladder_attack(escpos, l, l_new, l_new_2) != NONE) {
              solutions = append(solutions, l)
          }
     }
@@ -649,7 +651,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
 func cfg_distance(board string, c int) []int {
     cfg_map := []int{}
     for i := 0; i < W*W; i++ {
-        cfg_map = append(cfg_map, -1)
+        cfg_map = append(cfg_map, NONE)
     }
     cfg_map[c] = 0
 
@@ -895,7 +897,7 @@ func neighborhood_gridcular(board string, c int, done chan bool) chan string {
 // Multiple progressively wider patterns may match a single coordinate,
 // we consider the largest one.
 func large_pattern_probability(board string, c int) float32 {
-    probability := float32(-1)
+    probability := float32(NONE)
     matched_len := 0
     non_matched_len := 0
     done := make(chan bool)
@@ -1004,7 +1006,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
         if disp {
             print_pos(pos, os.Stderr, nil)
         }
-        pos2.n = -99
+        pos2.n = NONE
         // We simply try the moves our heuristics generate, in a particular
         // order, but not with 100% probability; this is on the border between
         // "rule-based playouts" and "probability distribution playouts".
@@ -1016,7 +1018,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             }
             pos2, err = pos.move(c)
             if err != "ok" {
-                pos2.n=-99
+                pos2.n=NONE
                 continue
             }
             // check if the suggested move did not turn out to be a self-atari
@@ -1032,7 +1034,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
                     if disp {
                         fmt.Fprintln(os.Stderr, "rejecting self-atari move", str_coord(c))
                     }
-                    pos2.n = -99
+                    pos2.n = NONE
                     continue
                 }
             }
@@ -1045,7 +1047,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             }
             break
         }
-        if pos2.n == -99 { // no valid moves, pass
+        if pos2.n == NONE { // no valid moves, pass
             pos, _ = pos.pass_move()
             passes += 1
             continue
@@ -1103,7 +1105,7 @@ func NewTreeNode(pos Position) TreeNode {
 // add and initialize children to a leaf node
 func (tn *TreeNode) expand() {
     cfg_map := []int{}
-    if tn.pos.last != -1 {
+    if tn.pos.last >= 0 {  // there is actually a move
         cfg_map = append(cfg_map, cfg_distance(tn.pos.board, tn.pos.last)...)
     }
     tn.children = []TreeNode{}
@@ -1266,7 +1268,7 @@ func tree_descend(tree TreeNode, amaf_map []int, disp bool) []TreeNode {
         if disp {
             fmt.Fprintf(os.Stderr, "chosen %s\n", str_coord(node.pos.last))
         }
-        if node.pos.last == -1 {
+        if node.pos.last == PASS {
             passes += 1
         } else {
             passes = 0
@@ -1314,7 +1316,7 @@ func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
         }
         if len(node.children) > 0 {
             for _, child := range(node.children) {
-                if child.pos.last == -1 {
+                if child.pos.last == PASS {
                     continue
                 }
                 if amaf_map[child.pos.last] == amaf_map_value {
@@ -1482,7 +1484,7 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
     }
     fmt.Fprintf(f, "Move: %-3d   Black: %d caps   White: %d caps   Komi: %.1f\n", pos.n, Xcap, Ocap, pos.komi)
     pretty_board := strings.Join(strings.Split(board, ""), " ")
-    if pos.last != -1 {
+    if pos.last >= 0 {
         pretty_board = pretty_board[:pos.last*2-1] + "(" + board[pos.last:pos.last+1] + ")" + pretty_board[pos.last*2+2:]
     }
     pb := []string{}
@@ -1620,7 +1622,7 @@ func print_tree_summary(tree TreeNode, sims int, f *os.File) {
 
 func parse_coord(s string) int {
     if s == "pass" {
-        return -1
+        return PASS
     }
     row, _ := strconv.ParseInt(s[1:], 10, 32)
     col := 1 + strings.Index(colstr, strings.ToUpper(s[0:1]))
@@ -1629,7 +1631,7 @@ func parse_coord(s string) int {
 }
 
 func str_coord(c int) string {
-    if c == -1 {
+    if c == PASS {
         return "pass"
     }
     row, col := divmod(c - (W+1), W)
@@ -1664,7 +1666,7 @@ func game_io(computer_black bool) {
             sc, _ := reader.ReadString('\n')
             sc = strings.TrimRight(sc, " \n")
             c := parse_coord(sc)
-            if c != -1 {
+            if c >= 0 {
                 // Not a pass
                 if tree.pos.board[c:c+1] != "." {
                     fmt.Println("Bad move (not empty point)")
@@ -1686,7 +1688,7 @@ func game_io(computer_black bool) {
                 tree = nodes[0]
             } else {
                 // Pass move
-                if tree.children[0].pos.n == -1 {
+                if len(tree.children) > 0 && tree.children[0].pos.last == PASS {
                     tree = tree.children[0]
                 } else {
                     pos, _ := tree.pos.pass_move()
@@ -1700,7 +1702,7 @@ func game_io(computer_black bool) {
         owner_map = make([]float32, W*W)
         // tree = tree_search(tree, N_SIMS, owner_map)
         tree = tree_search(tree, N_SIMS, owner_map, false)
-        if tree.pos.last == -1 && tree.pos.last2 == -1 {
+        if tree.pos.last == PASS && tree.pos.last2 == PASS {
             score := tree.pos.score(owner_map)
             if tree.pos.n % 2 == 1 {
                 score = -score
@@ -1765,7 +1767,7 @@ func gtp_io()  {
             }
         } else if command[0] == "play" {
             c := parse_coord(command[2])
-            if c != -1 {
+            if c >= 0 {
                 // Find the next node in the game tree and proceed there
                 // if tree.children is not None and filter(lambda n: n.pos.last == c, tree.children):
                 //     tree = filter(lambda n: n.pos.last == c, tree.children)[0]
@@ -1788,7 +1790,7 @@ func gtp_io()  {
                 }
             } else {
                 // Pass move
-                if len(tree.children) > 0 && tree.children[0].pos.last == -1 {
+                if len(tree.children) > 0 && tree.children[0].pos.last == PASS {
                     tree = tree.children[0]
                 } else {
                     pos, _ := tree.pos.pass_move()
@@ -1797,7 +1799,7 @@ func gtp_io()  {
             }
         } else if command[0] == "genmove" {
             tree = tree_search(tree, N_SIMS, owner_map, false)
-            if tree.pos.last == -1 {
+            if tree.pos.last == PASS {
                 ret = "pass"
             } else if tree.v > 0 && float32(tree.w)/float32(tree.v) < RESIGN_THRES {
                 ret = "resign"
