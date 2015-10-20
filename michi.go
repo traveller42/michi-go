@@ -243,7 +243,7 @@ func ShuffleInt(a []int) {
     }
 }
 
-func ShuffleTree(a []TreeNode) {
+func ShuffleTree(a []*TreeNode) {
     for i := range a {
         j := rand.Intn(i + 1)
         a[i], a[j] = a[j], a[i]
@@ -1086,11 +1086,11 @@ type TreeNode struct {
     pw int  // prior value of w
     av int
     aw int
-    children []TreeNode
+    children []*TreeNode
 }
 
-func NewTreeNode(pos Position) TreeNode {
-    var tn TreeNode
+func NewTreeNode(pos Position) *TreeNode {
+    tn := new(TreeNode)
     tn.pos = pos
     tn.v = 0
     tn.w = 0
@@ -1098,7 +1098,7 @@ func NewTreeNode(pos Position) TreeNode {
     tn.pw = PRIOR_EVEN/2
     tn.av = 0
     tn.aw = 0
-    tn.children = []TreeNode{}
+    tn.children = []*TreeNode{}
     return tn
 }
 
@@ -1108,8 +1108,8 @@ func (tn *TreeNode) expand() {
     if tn.pos.last >= 0 {  // there is actually a move
         cfg_map = append(cfg_map, cfg_distance(tn.pos.board, tn.pos.last)...)
     }
-    tn.children = []TreeNode{}
-    childset := map[int]TreeNode{}
+    tn.children = []*TreeNode{}
+    childset := map[int]*TreeNode{}
     // Use playout generator to generate children and initialize them
     // with some priors to bias search towards more sensible moves.
     // Note that there can be many ways to incorporate the priors in
@@ -1197,7 +1197,7 @@ func (tn *TreeNode) expand() {
     }
 }
 
-func (tn TreeNode) rave_urgency() float32 {
+func (tn *TreeNode) rave_urgency() float32 {
     v := tn.v + tn.pv
     expectation := float32(tn.w + tn.pw) / float32(v)
     if tn.av == 0 {
@@ -1208,7 +1208,7 @@ func (tn TreeNode) rave_urgency() float32 {
     return beta * rave_expectation + (1-beta) * expectation
 }
 
-func (tn TreeNode) winrate() float32 {
+func (tn *TreeNode) winrate() float32 {
     if tn.v > 0 {
         return float32(tn.w) / float32(tn.v)
     } else {
@@ -1217,10 +1217,10 @@ func (tn TreeNode) winrate() float32 {
 }
 
 // best move is the most simulated one
-func (tn TreeNode) best_move() (TreeNode, bool) {
-    var max_node TreeNode
+func (tn *TreeNode) best_move() (*TreeNode, bool) {
+    var max_node *TreeNode
     if len(tn.children) == 0 {
-        return NewTreeNode(empty_position()), false
+        return nil, false
     } else {
         max_v := -1
         for _, node := range(tn.children) {
@@ -1234,9 +1234,9 @@ func (tn TreeNode) best_move() (TreeNode, bool) {
 }
 
 // Descend through the tree to a leaf
-func tree_descend(tree TreeNode, amaf_map []int, disp bool) []TreeNode {
+func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
     tree.v += 1
-    nodes := []TreeNode{tree}
+    nodes := []*TreeNode{tree}
     passes := 0
     for len(nodes[len(nodes)-1].children) > 0 && passes < 2 {
         if disp {
@@ -1246,9 +1246,9 @@ func tree_descend(tree TreeNode, amaf_map []int, disp bool) []TreeNode {
         // Pick the most urgent child
         children := nodes[len(nodes)-1].children
         if disp {
-            for _, c := range(children) {
+            for _, child := range(children) {
                 // dump_subtree(c, recurse=False)
-                dump_subtree(c, N_SIMS/50, 0, os.Stderr, false)
+                dump_subtree(child, N_SIMS/50, 0, os.Stderr, false)
             }
         }
         ShuffleTree(children) // randomize the max in case of equal urgency
@@ -1292,11 +1292,10 @@ func tree_descend(tree TreeNode, amaf_map []int, disp bool) []TreeNode {
 
 // Store simulation result in the tree (@nodes is the tree path)
 // def tree_update(nodes, amaf_map, score, disp=False):
-func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
-    local_nodes := []TreeNode{}
-    limit := len(nodes)
-    for i := 1; i <= limit; i++ {
-        local_nodes = append(local_nodes, nodes[limit-i])
+func tree_update(nodes []*TreeNode, amaf_map []int, score float32, disp bool) {
+    local_nodes := nodes
+    for i, j := 0, len(local_nodes)-1; i < j; i, j = i+1, j-1 { // reverse the order
+        local_nodes[i], local_nodes[j] = local_nodes[j], local_nodes[i]
     }
     for _, node := range(local_nodes) {
         if disp {
@@ -1342,7 +1341,7 @@ func tree_update(nodes []TreeNode, amaf_map []int, score float32, disp bool) {
 
 // Perform MCTS search from a given position for a given #iterations
 // def tree_search(tree, n, owner_map, disp=False):
-func tree_search(tree TreeNode, n int, owner_map []float32, disp bool) TreeNode {
+func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNode {
     // Initialize root node
     if len(tree.children) == 0 {
         tree.expand()
@@ -1369,7 +1368,7 @@ func tree_search(tree TreeNode, n int, owner_map []float32, disp bool) TreeNode 
     //   worker_pool = Pool(processes=n_workers)
 
     type Job struct {
-        nodes []TreeNode
+        nodes []*TreeNode
         amaf_map []int
         owner_map []float32
         score float32
@@ -1525,7 +1524,7 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
 
 // Sort a slice of TreeNode by the v field
 // Return with Max v
-func Best_Nodes(nodes []TreeNode) []TreeNode {
+func Best_Nodes(nodes []*TreeNode) []*TreeNode {
     var i_max, v_max int
 
     if len(nodes) == 1 {
@@ -1539,17 +1538,20 @@ func Best_Nodes(nodes []TreeNode) []TreeNode {
             v_max = node.v
         }
     }
-    best_nodes := []TreeNode{nodes[i_max]}
-    remaining_nodes := nodes[:i_max]
-    if i_max < len(nodes)-1 {
-        remaining_nodes = append(remaining_nodes, nodes[i_max+1:]...)
+    best_nodes := []*TreeNode{nodes[i_max]}
+    remaining_nodes := []*TreeNode{}
+    for i := 0; i < i_max; i++ {
+        remaining_nodes = append(remaining_nodes, nodes[i])
+    }
+    for i := i_max + 1; i < len(nodes); i++ {
+        remaining_nodes = append(remaining_nodes, nodes[i])
     }
     return append(best_nodes, Best_Nodes(remaining_nodes)...)
 }
 
 // print this node and all its children with v >= thres.
 // def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
-func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
+func dump_subtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
     var float_val float32
     if node.av > 0 {
         float_val = float32(node.aw)/float32(node.av)
@@ -1571,9 +1573,10 @@ func dump_subtree(node TreeNode, thres, indent int, f *os.File, recurse bool) {
     }
 }
 
-func print_debug(tree TreeNode, depth int) {
+func print_debug(tree *TreeNode, depth int) {
     indent := strings.Repeat(" ", depth)
-    fmt.Fprintf(os.Stderr, "%s%3d: %3d %3d %3d | %d/%d %d/%d %d/%d | %d\n", indent, tree.pos.n, tree.pos.last, tree.pos.last2, tree.pos.ko,
+    fmt.Fprintf(os.Stderr, "%s%3d: %3d %3d %3d | %d/%d %d/%d %d/%d | %d\n",
+                indent, tree.pos.n, tree.pos.last, tree.pos.last2, tree.pos.ko,
                 tree.pw, tree.pv, tree.w, tree.v, tree.aw, tree.av, len(tree.children))
     for _, child := range(tree.children) {
         print_debug(child, depth+2)
@@ -1581,11 +1584,13 @@ func print_debug(tree TreeNode, depth int) {
 }
 
 // def print_tree_summary(tree, sims, f=sys.stderr):
-func print_tree_summary(tree TreeNode, sims int, f *os.File) {
-    log.Println("print_tree_summary(): ", sims)
-    print_debug(tree, 0)
+func print_tree_summary(tree *TreeNode, sims int, f *os.File) {
+    if false {
+        log.Println("print_tree_summary(): ", sims)
+        print_debug(tree, 0)
+    }
     var exists bool
-    var best_nodes []TreeNode
+    var best_nodes []*TreeNode
     if len(tree.children) < 5 {
         best_nodes = Best_Nodes(tree.children)
     } else {
@@ -1634,6 +1639,9 @@ func str_coord(c int) string {
     if c == PASS {
         return "pass"
     }
+    if c == NONE {
+        return "NONE"
+    }
     row, col := divmod(c - (W+1), W)
     return fmt.Sprintf("%c%d", colstr[col], N-row)
 }
@@ -1675,7 +1683,7 @@ func game_io(computer_black bool) {
 
                 // Find the next node in the game tree and proceed there
                 // nodes = filter(lambda n: n.pos.last == c, tree.children)
-                nodes := []TreeNode{}
+                nodes := []*TreeNode{}
                 for _, node := range(tree.children) {
                     if node.pos.last == c {
                         nodes = append(nodes, node)
@@ -1774,7 +1782,7 @@ func gtp_io()  {
                 // else:
                 //     # Several play commands in row, eye-filling move, etc.
                 //    tree = TreeNode(pos=tree.pos.move(c))
-                nodes := []TreeNode{}
+                nodes := []*TreeNode{}
                 if len(tree.children) > 0 {
                     for _, node := range(tree.children) {
                         if node.pos.last == c {
