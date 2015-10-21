@@ -149,23 +149,26 @@ func diag_neighbors(c int) []int {
 }
 
 func board_put(board []byte, c int, p byte) []byte {
-    board[c] = p
-    return board
+    local_board := append([]byte{}, board...)
+    local_board[c] = p
+    return local_board
 }
 
 // replace continuous-color area starting at c with special color #
 func floodfill(board []byte, c int) []byte {
+    local_board := append([]byte{}, board...)
+
     // XXX: Use bytearray to speed things up? (still needed in golang?)
-    p := board[c]
-    board = board_put(board, c, '#')
+    p := local_board[c]
+    local_board = board_put(local_board, c, '#')
     fringe := []int{c}
     for len(fringe) > 0 {
         // c = fringe.pop()
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
         // for d in neighbors(c)
         for _, d := range neighbors(c) {
-            if board[d] == p {
-                board = board_put(board, d, '#')
+            if local_board[d] == p {
+                local_board = board_put(local_board, d, '#')
                 // fringe.append(d)
                 fringe = append(fringe, d)
             }
@@ -470,7 +473,7 @@ func (p Position) last_moves_neighbors() []int {
 // to be an array of statistics with average owner at the end of the game
 // (+1 black, -1 white)
 func (p Position) score(owner_map []float32) float32 {
-    board := p.board
+    board := append([]byte{}, p.board...)
     var fboard []byte
     var touches_X, touches_x bool
     var komi float32
