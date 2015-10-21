@@ -5,6 +5,8 @@ package main
 
 import (
     "bufio"
+    "bytes"
+    "encoding/binary"
     "fmt"
     "hash/fnv"
     "log"
@@ -28,9 +30,9 @@ const (
     N = 13
     W = N + 2
 )
-var empty = strings.Repeat(" ", N+1) + "\n" +
-            strings.Repeat(" " + strings.Repeat(".", N) + "\n", N) +
-            strings.Repeat(" ", N+2)
+var empty = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
+            bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
+            bytes.Repeat([]byte{' '}, N+2)...)
 const (
     colstr = "ABCDEFGHJKLMNOPQRST"
     MAX_GAME_LEN = N * N * 3
@@ -66,49 +68,49 @@ const(
     FASTPLAY5_THRES = 0.95  // if at 5% playouts winrate is >this, stop reading
 )
 
-var pat3src = [...][]string{  // 3x3 playout patterns; X,O are colors, x,o are their inverses
-        {"XOX",  // hane pattern - enclosing hane
-         "...",
-         "???",},
-        {"XO.",  // hane pattern - non-cutting hane
-         "...",
-         "?.?",},
-        {"XO?",  // hane pattern - magari
-         "X..",
-         "x.?",},
-     // {"XOO",  // hane pattern - thin hane
-     //  "...",
-     //  "?.?",} "X",  - only for the X player
-        {".O.",  // generic pattern - katatsuke or diagonal attachment; similar to magari
-         "X..",
-         "...",},
-        {"XO?",  // cut1 pattern (kiri] - unprotected cut
-         "O.o",
-         "?o?",},
-        {"XO?",  // cut1 pattern (kiri] - peeped cut
-         "O.X",
-         "???",},
-        {"?X?",  // cut2 pattern (de]
-         "O.O",
-         "ooo",},
-        {"OX?",  // cut keima
-         "o.O",
-         "???",},
-        {"X.?",  // side pattern - chase
-         "O.?",
-         "   ",},
-        {"OX?",  // side pattern - block side cut
-         "X.O",
-         "   ",},
-        {"?X?",  // side pattern - block side connection
-         "x.O",
-         "   ",},
-        {"?XO",  // side pattern - sagari
-         "x.x",
-         "   ",},
-        {"?OX",  // side pattern - cut
-         "X.O",
-         "   ",},
+var pat3src = [...][][]byte{  // 3x3 playout patterns; X,O are colors, x,o are their inverses
+        {{'X','O','X'},  // hane pattern - enclosing hane
+         {'.','.','.'},
+         {'?','?','?'}},
+        {{'X','O','.'},  // hane pattern - non-cutting hane
+         {'.','.','.'},
+         {'?','.','?'}},
+        {{'X','O','?'},  // hane pattern - magari
+         {'X','.','.'},
+         {'x','.','?'}},
+     // {{'X','O','O'},  // hane pattern - thin hane
+     //  {'.','.','.'},
+     //  {'?','.','?'}} "X",  - only for the X player
+        {{'.','O','.'},  // generic pattern - katatsuke or diagonal attachment; similar to magari
+         {'X','.','.'},
+         {'.','.','.'}},
+        {{'X','O','?'},  // cut1 pattern (kiri] - unprotected cut
+         {'O','.','o'},
+         {'?','o','?'}},
+        {{'X','O','?'},  // cut1 pattern (kiri] - peeped cut
+         {'O','.','X'},
+         {'?','?','?'}},
+        {{'?','X','?'},  // cut2 pattern (de]
+         {'O','.','O'},
+         {'o','o','o'}},
+        {{'O','X','?'},  // cut keima
+         {'o','.','O'},
+         {'?','?','?'}},
+        {{'X','.','?'},  // side pattern - chase
+         {'O','.','?'},
+         {' ',' ',' '}},
+        {{'O','X','?'},  // side pattern - block side cut
+         {'X','.','O'},
+         {' ',' ',' '}},
+        {{'?','X','?'},  // side pattern - block side connection
+         {'x','.','O'},
+         {' ',' ',' '}},
+        {{'?','X','O'},  // side pattern - sagari
+         {'x','.','x'},
+         {' ',' ',' '}},
+        {{'?','O','X'},  // side pattern - cut
+         {'X','.','O'},
+         {' ',' ',' '}},
         }
 
 var pat_gridcular_seq = [][][]int{  // Sequence of coordinate offsets of progressively wider diameters in gridcular metric
@@ -146,15 +148,16 @@ func diag_neighbors(c int) []int {
     return []int{ c-W-1, c-W+1, c+W-1, c+W+1 }
 }
 
-func board_put(board string, c int, p string) string {
-    return board[:c] + p + board[c+1:]
+func board_put(board []byte, c int, p byte) []byte {
+    board[c] = p
+    return board
 }
 
 // replace continuous-color area starting at c with special color #
-func floodfill(board string, c int) string {
+func floodfill(board []byte, c int) []byte {
     // XXX: Use bytearray to speed things up? (still needed in golang?)
     p := board[c]
-    board = board_put(board, c, "#")
+    board = board_put(board, c, '#')
     fringe := []int{c}
     for len(fringe) > 0 {
         // c = fringe.pop()
@@ -162,7 +165,7 @@ func floodfill(board string, c int) string {
         // for d in neighbors(c)
         for _, d := range neighbors(c) {
             if board[d] == p {
-                board = board_put(board, d, "#")
+                board = board_put(board, d, '#')
                 // fringe.append(d)
                 fringe = append(fringe, d)
             }
@@ -172,11 +175,11 @@ func floodfill(board string, c int) string {
 }
 
 // Regex that matches various kind of points adjecent to '#' (floodfilled) points
-func make_contact_res() map[string]*regexp.Regexp {
-    temp_map := make(map[string]*regexp.Regexp)
-    for _, p := range [...]string{".", "x", "X"} {
-        rp := p
-        if p == "." {
+func make_contact_res() map[byte]*regexp.Regexp {
+    temp_map := make(map[byte]*regexp.Regexp)
+    for _, p := range [...]byte{'.', 'x', 'X'} {
+        rp := string([]byte{p})
+        if p == '.' {
             rp = "\\."
         }
         contact_res_src := []string{
@@ -193,14 +196,14 @@ var contact_res = make_contact_res()
 
 // test if point of color p is adjecent to color # anywhere
 // on the board; use in conjunction with floodfill for reachability
-func contact(board, p string) int {
+func contact(board []byte, p byte) int {
     // m = contact_res[p].search(board)
-    m := contact_res[p].FindStringIndex(board)
+    m := contact_res[p].FindIndex(board)
     if m == nil {
         return NONE
     }
     // return m.start() if m.group(0)[0] == p else m.end() - 1
-    if board[m[0]:m[0]+1] == p {
+    if board[m[0]] == p {
         return m[0]
     }
     return m[1] - 1
@@ -209,9 +212,9 @@ func contact(board, p string) int {
 // functions added to replace Python functions and methods
 
 // use FNV Hash for Python hash function
-func HashString(s string) uint64 {
+func HashByteSlice(s []byte) uint64 {
     h := fnv.New64()
-    h.Write([]byte(s))
+    h.Write(s)
     return h.Sum64()
 }
 
@@ -231,8 +234,8 @@ func swapCase(r rune) rune {
     }
 }
 // function to apply mapping to string
-func SwapCase(str string) string {
-    return strings.Map(swapCase, str)
+func SwapCase(str []byte) []byte {
+    return bytes.Map(swapCase, str)
 }
 
 // create routines to replace random.shuffle() in Python
@@ -260,9 +263,9 @@ func intInSlice(intSlice []int, intTest int) bool {
     return false
 }
 
-func stringInSlice(strSlice []string, strTest string) bool {
+func bytesInSlice(strSlice [][]byte, strTest []byte) bool {
     for _, str := range strSlice {
-        if str == strTest {
+        if bytes.Equal(str, strTest) {
             return true
         }
     }
@@ -270,28 +273,27 @@ func stringInSlice(strSlice []string, strTest string) bool {
 }
 
 // test for edge of board
-func IsSpace(str string) bool {
-    return strings.ContainsAny(str, " \n")
+func IsSpace(b byte) bool {
+    return bytes.Contains([]byte{' ','\n'}, []byte{b})
 }
 
 // test if c is inside a single-color diamond and return the diamond
 // color or None; this could be an eye, but also a false one
-func is_eyeish(board string, c int) string {
-    eyecolor := ""
-    othercolor := ""
+func is_eyeish(board []byte, c int) byte {
+    var eyecolor, othercolor byte
     for _, d := range neighbors(c) {
-        if IsSpace(board[d:d+1]) {
+        if IsSpace(board[d]) {
             continue
         }
-        if board[d:d+1] == "." {
-            return ""
+        if board[d] == '.' {
+            return 0
         }
-        if eyecolor == "" {
-            eyecolor = board[d:d+1]
-            othercolor = SwapCase(eyecolor)
+        if eyecolor == 0 {
+            eyecolor = board[d]
+            othercolor = byte(swapCase(rune(eyecolor)))
         } else {
-            if board[d:d+1] == othercolor {
-                return ""
+            if board[d] == othercolor {
+                return 0
             }
         }
     }
@@ -299,21 +301,21 @@ func is_eyeish(board string, c int) string {
 }
 
 // test if c is an eye and return its color or None
-func is_eye(board string, c int) string {
+func is_eye(board []byte, c int) byte {
     eyecolor := is_eyeish(board, c)
-    if eyecolor == "" {
-        return ""
+    if eyecolor == 0 {
+        return 0
     }
 
     // Eye-like shape, but it could be a falsified eye
-    falsecolor := SwapCase(eyecolor)
+    falsecolor := byte(swapCase(rune(eyecolor)))
     false_count := 0
     at_edge := false
     for _, d := range diag_neighbors(c) {
-        if IsSpace(board[d:d+1]) {
+        if IsSpace(board[d]) {
             at_edge = true
         } else {
-            if board[d:d+1] == falsecolor {
+            if board[d] == falsecolor {
                 false_count += 1
             }
         }
@@ -322,7 +324,7 @@ func is_eye(board string, c int) string {
         false_count += 1
     }
     if false_count >= 2 {
-        return ""
+        return 0
     }
     return eyecolor
 }
@@ -330,7 +332,7 @@ func is_eye(board string, c int) string {
 // class Position(namedtuple('Position', 'board cap n ko last last2 komi')):
 // Implementation of simple Chinese Go rules
 type Position struct {
-    board string // string representation of board state
+    board []byte // string representation of board state
     cap []int    // holds total captured stones for each player
     n int        // n is how many moves were played so far
     ko int       // location of prohibited move under simple ko rules
@@ -346,30 +348,30 @@ func (p Position) move(c int) (Position, string) {
         return p, "ko"
     }
     // Are we trying to play in enemy's eye?
-    in_enemy_eye := is_eyeish(p.board, c) == "x"
+    in_enemy_eye := is_eyeish(p.board, c) == 'x'
 
-    board := board_put(p.board, c, "X")
+    board := board_put(p.board, c, 'X')
     // Test for captures, and track ko
     capX := p.cap[0]
     singlecaps := []int{}
     for _, d := range neighbors(c) {
-        if board[d:d+1] != "x" {
+        if board[d] != 'x' {
             continue
         }
         // XXX: The following is an extremely naive and SLOW approach
         // at things - to do it properly, we should maintain some per-group
         // data structures tracking liberties.
         fboard := floodfill(board, d) // get a board with the adjacent group replaced by '#'
-        if contact(fboard, ".") != NONE {
+        if contact(fboard, '.') != NONE {
             continue  // some liberties left
         }
         // no liberties left for this group, remove the stones!
-        capcount := strings.Count(fboard, "#")
+        capcount := bytes.Count(fboard, []byte{'#'})
         if capcount == 1 {
             singlecaps = append(singlecaps, d)
         }
         capX += capcount
-        board = strings.Replace(fboard, "#", ".", -1) // capture the group
+        board = bytes.Replace(fboard, []byte{'#'}, []byte{'.'}, -1) // capture the group
     }
     // set ko
     ko := NONE
@@ -377,7 +379,7 @@ func (p Position) move(c int) (Position, string) {
         ko = singlecaps[0]
     }
     // Test for suicide
-    if contact(floodfill(board, c), ".") == NONE {
+    if contact(floodfill(board, c), '.') == NONE {
         return p, "suicide"
     }
 
@@ -416,7 +418,7 @@ func (p Position) moves(i0 int) chan int {
         i := i0 - 1
         passes := 0
         for {
-            index := strings.Index(p.board[i+1:], ".")
+            index := bytes.Index(p.board[i+1:], []byte{'.'})
             if passes > 0 && (index == -1 || i+index >= i0) {
                 break // we have looked through the whole board
             }
@@ -427,7 +429,7 @@ func (p Position) moves(i0 int) chan int {
             }
             i += index + 1
             // Test for to-play player's one-point eye
-            if is_eye(p.board, i) == "X" {
+            if is_eye(p.board, i) == 'X'{
                 continue
             }
             // yield i
@@ -469,27 +471,27 @@ func (p Position) last_moves_neighbors() []int {
 // (+1 black, -1 white)
 func (p Position) score(owner_map []float32) float32 {
     board := p.board
-    var fboard string
+    var fboard []byte
     var touches_X, touches_x bool
     var komi float32
     var n float32
     i := 0
     for {
-        index := strings.Index(p.board[i+1:], ".")
+        index := bytes.Index(p.board[i+1:], []byte{'.'})
         if index == -1 {
             break
         }
         i += index + 1
         fboard = floodfill(board, i)
         // fboard is board with some continuous area of empty space replaced by #
-        touches_X = contact(fboard, "X") != NONE
-        touches_x = contact(fboard, "x") != NONE
+        touches_X = contact(fboard, 'X') != NONE
+        touches_x = contact(fboard, 'x') != NONE
         if touches_X && !touches_x {
-            board = strings.Replace(fboard, "#", "X", -1)
+            board = bytes.Replace(fboard, []byte{'#'}, []byte{'X'}, -1)
         } else if touches_x && !touches_X {
-            board = strings.Replace(fboard, "#", "x", -1)
+            board = bytes.Replace(fboard, []byte{'#'}, []byte{'x'}, -1)
         } else {
-            board = strings.Replace(fboard, "#", ":", -1) // seki, rare
+            board = bytes.Replace(fboard, []byte{'#'}, []byte{':'}, -1) // seki, rare
         }
     }
     // now that area is replaced either by X, x or :
@@ -501,9 +503,9 @@ func (p Position) score(owner_map []float32) float32 {
     }
     if len(owner_map) > 0 {
         for c := 0; c < W*W; c++ {
-            if board[c:c+1] == "X" {
+            if board[c] == 'X' {
                 n = 1
-            } else if board[c:c+1] == "x" {
+            } else if board[c] == 'x' {
                 n = -1
             } else {
                 n = 0
@@ -514,7 +516,7 @@ func (p Position) score(owner_map []float32) float32 {
             owner_map[c] += n
         }
     }
-    return float32(strings.Count(board, "X") - strings.Count(board, "x")) + komi
+    return float32(bytes.Count(board, []byte{'X'}) - bytes.Count(board, []byte{'x'})) + komi
 }
 
 // Return an initial board position
@@ -575,20 +577,20 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     }
 
     fboard := floodfill(pos.board, c)
-    group_size := strings.Count(fboard, "#")
+    group_size := bytes.Count(fboard, []byte{'#'})
     if singlept_ok && group_size == 1 {
         return false, []int{}
     }
     // Find a liberty
-    l := contact(fboard, ".")
+    l := contact(fboard, '.')
     // Ok, any other liberty?
-    fboard = board_put(fboard, l, "L")
-    l2 := contact(fboard, ".")
+    fboard = board_put(fboard, l, 'L')
+    l2 := contact(fboard, '.')
     if l2 != NONE {
         // At least two liberty group...
         if twolib_test && group_size > 1 &&
            (!twolib_edgeonly || line_height(l) == 0 && line_height(l2) == 0) &&
-           contact(board_put(fboard, l2, "L"), ".") == NONE {
+           contact(board_put(fboard, l2, 'L'), '.') == NONE {
             // Exactly two liberty group with more than one stone.  Check
             // that it cannot be caught in a working ladder; if it can,
             // that's as good as in atari, a capture threat.
@@ -602,7 +604,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     }
 
     // In atari! If it's the opponent's group, that's enough...
-    if pos.board[c:c+1] == "x" {
+    if pos.board[c] == 'x' {
         return true, []int{l}
     }
 
@@ -612,7 +614,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
     // a neighboring group?
     ccboard := fboard
     for {
-        othergroup := contact(ccboard, "x")
+        othergroup := contact(ccboard, 'x')
         if othergroup == NONE {
             break
         }
@@ -622,7 +624,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
             solutions = append(solutions, ccls...)
         }
         // XXX: floodfill is better for big groups
-        ccboard = board_put(ccboard, othergroup, "%")
+        ccboard = board_put(ccboard, othergroup, '%')
     }
 
     // We are escaping.  Will playing our last liberty gain
@@ -632,12 +634,12 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
         return true, solutions // oops, suicidal move
     }
     fboard = floodfill(escpos.board, l)
-    l_new := contact(fboard, ".")
-    fboard = board_put(fboard, l_new, "L")
-    l_new_2 := contact(fboard, ".")
+    l_new := contact(fboard, '.')
+    fboard = board_put(fboard, l_new, 'L')
+    l_new_2 := contact(fboard, '.')
     if l_new_2 != NONE {
         if len(solutions) > 0 ||
-           !(contact(board_put(fboard, l_new_2, "L"), ".") == NONE &&
+           !(contact(board_put(fboard, l_new_2, 'L'), '.') == NONE &&
              read_ladder_attack(escpos, l, l_new, l_new_2) != NONE) {
              solutions = append(solutions, l)
          }
@@ -648,7 +650,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
 // return a board map listing common fate graph distances from
 // a given point - this corresponds to the concept of locality while
 // contracting groups to single points
-func cfg_distance(board string, c int) []int {
+func cfg_distance(board []byte, c int) []int {
     cfg_map := []int{}
     for i := 0; i < W*W; i++ {
         cfg_map = append(cfg_map, NONE)
@@ -661,12 +663,12 @@ func cfg_distance(board string, c int) []int {
         // c = fringe.pop()
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
         for _, d := range(neighbors(c)) {
-            if IsSpace(board[d:d+1]) ||
+            if IsSpace(board[d]) ||
                (0 <= cfg_map[d] && cfg_map[d] <= cfg_map[c]) {
                 continue
             }
             cfg_before := cfg_map[d]
-            if board[d:d+1] != "." && board[d:d+1] == board[c:c+1] {
+            if board[d] != '.' && board[d] == board[c] {
                 cfg_map[d] = cfg_map[c]
             } else {
                 cfg_map[d] = cfg_map[c] + 1
@@ -693,12 +695,12 @@ func line_height(c int) int {
 
 // Check whether there are any stones in Manhattan distance up to dist
 // def empty_area(board, c, dist=3):
-func empty_area(board string, c, dist int) bool {
+func empty_area(board []byte, c, dist int) bool {
     for d := range(neighbors(c)) {
-        if strings.ContainsAny(board[d:d+1], "Xx") {
+        if bytes.Contains([]byte{'X','x'}, []byte{board[d]}) {
             return false
         }
-        if board[d:d+1] == "." && dist > 1 && !empty_area(board, d, dist-1) {
+        if board[d] == '.' && dist > 1 && !empty_area(board, d, dist-1) {
             return false
         }
     }
@@ -710,50 +712,50 @@ func empty_area(board string, c, dist int) bool {
 // All possible neighborhood configurations matching a given pattern;
 // used just for a combinatoric explosion when loading them in an
 // in-memory set.
-func pat3_expand(pat []string) []string {
-    pat_rot90 := func(p []string) []string {
-        return []string{p[2][0:1] + p[1][0:1] + p[2][0:1],
-                        p[2][1:2] + p[1][1:2] + p[0][1:2],
-                        p[2][2:3] + p[1][2:3] + p[0][2:3]}
+func pat3_expand(pat [][]byte) [][]byte {
+    pat_rot90 := func(p [][]byte) [][]byte {
+        return [][]byte{{p[2][0], p[1][0], p[2][0]},
+                        {p[2][1], p[1][1], p[0][1]},
+                        {p[2][2], p[1][2], p[0][2]}}
     }
-    pat_vertflip := func(p []string) []string {
-        return []string{p[2], p[1], p[0]}
+    pat_vertflip := func(p [][]byte) [][]byte {
+        return [][]byte{p[2], p[1], p[0]}
     }
-    pat_horizflip := func(p []string) []string {
-        return []string{p[0][2:3] + p[0][1:2] + p[0][0:1],
-                        p[1][2:3] + p[1][1:2] + p[1][0:1],
-                        p[2][2:3] + p[2][1:2] + p[2][0:1]}
+    pat_horizflip := func(p [][]byte) [][]byte {
+        return [][]byte{{p[0][2], p[0][1], p[0][0]},
+                        {p[1][2], p[1][1], p[1][0]},
+                        {p[2][2], p[2][1], p[2][0]}}
     }
-    pat_swapcolors := func(p []string) []string {
-        l := []string{}
+    pat_swapcolors := func(p [][]byte) [][]byte {
+        l := [][]byte{}
         for _, s:= range(p) {
-            s = strings.Replace(s, "X", "Z", -1)
-            s = strings.Replace(s, "x", "z", -1)
-            s = strings.Replace(s, "O", "X", -1)
-            s = strings.Replace(s, "o", "x", -1)
-            s = strings.Replace(s, "Z", "O", -1)
-            s = strings.Replace(s, "z", "o", -1)
+            s = bytes.Replace(s, []byte{'X'}, []byte{'Z'}, -1)
+            s = bytes.Replace(s, []byte{'x'}, []byte{'z'}, -1)
+            s = bytes.Replace(s, []byte{'O'}, []byte{'X'}, -1)
+            s = bytes.Replace(s, []byte{'o'}, []byte{'x'}, -1)
+            s = bytes.Replace(s, []byte{'Z'}, []byte{'O'}, -1)
+            s = bytes.Replace(s, []byte{'z'}, []byte{'o'}, -1)
             l = append(l, s)
         }
         return l
     }
-    var pat_wildexp func(p, c, to string) []string
-    pat_wildexp = func(p, c, to string) []string {
-        i := strings.Index(p, c)
+    var pat_wildexp func(p []byte, c byte, to []byte) [][]byte
+    pat_wildexp = func(p []byte, c byte, to []byte) [][]byte {
+        i := bytes.Index(p, []byte{c})
         if i == -1 {
-            return []string{p}
+            return append([][]byte{}, p)
         }
-        l := []string{}
-        for _, t := range(strings.Split(to, "")) {
-            l = append(l, pat_wildexp(p[:i] + t + p[i+1:], c, to)...)
+        l := [][]byte{}
+        for _, t := range(bytes.Split(to, []byte{})) {
+            l = append(l, pat_wildexp(append(append(p[:i], t[0]), p[i+1:]...), c, to)...)
         }
         return l
     }
-    pat_wildcards := func(pat string) []string {
-        l := []string{}
-        for _, p1 := range(pat_wildexp(pat, "?", ".XO ")) {
-            for _, p2 := range(pat_wildexp(p1, "x", ".O ")) {
-                for _, p3 := range(pat_wildexp(p2, "o", ".X ")) {
+    pat_wildcards := func(pat []byte) [][]byte {
+        l := [][]byte{}
+        for _, p1 := range(pat_wildexp(pat, '?', []byte{'.','X','O',' '})) {
+            for _, p2 := range(pat_wildexp(p1, 'x', []byte{'.','O',' '})) {
+                for _, p3 := range(pat_wildexp(p2, 'o', []byte{'.','X',' '})) {
                     l = append(l, p3)
                 }
             }
@@ -761,12 +763,12 @@ func pat3_expand(pat []string) []string {
         return l
     }
 
-    rl := []string{}
-    for _, p1 := range([][]string{pat, pat_rot90(pat)}) {
-        for _, p2 := range([][]string{p1, pat_vertflip(p1)}) {
-            for _, p3 := range([][]string{p2, pat_horizflip(p2)}) {
-                for _, p4 := range([][]string{p3, pat_swapcolors(p3)}) {
-                    for _, p5 := range(pat_wildcards(strings.Join(p4, ""))) {
+    rl := [][]byte{}
+    for _, p1 := range([][][]byte{pat, pat_rot90(pat)}) {
+        for _, p2 := range([][][]byte{p1, pat_vertflip(p1)}) {
+            for _, p3 := range([][][]byte{p2, pat_horizflip(p2)}) {
+                for _, p4 := range([][][]byte{p3, pat_swapcolors(p3)}) {
+                    for _, p5 := range(pat_wildcards(bytes.Join(p4, []byte{}))) {
                         rl = append(rl, p5)
                     }
                 }
@@ -776,14 +778,14 @@ func pat3_expand(pat []string) []string {
     return rl
 }
 
-func pat3set_func() []string {
-    l := []string{}
+func pat3set_func() [][]byte {
+    l := [][]byte{}
     for _, p := range(pat3src) {
         for _, s := range(pat3_expand(p)) {
-            s = strings.Replace(s, "O", "x", -1)
+            s = bytes.Replace(s, []byte{'O'}, []byte{'x'}, -1)
             unique := true
             for _, t := range(l) {
-                if s == t {
+                if bytes.Equal(s, t) {
                     unique = false
                     break
                 }
@@ -799,8 +801,11 @@ var pat3set = pat3set_func()
 
 // return a string containing the 9 points forming 3x3 square around
 //  certain move candidate
-func neighborhood_33(board string, c int) string {
-    return strings.Replace(board[c-W-1:c-W+2] + board[c-1:c+2] + board[c+W-1:c+W+2], "\n", " ", -1)
+func neighborhood_33(board []byte, c int) []byte {
+    local_board := append([]byte{}, board[c-W-1:c-W+2]...)
+    local_board = append(local_board, board[c-1:c+2]...)
+    local_board = append(local_board, board[c+W-1:c+W+2]...)
+    return bytes.Replace(local_board, []byte{'\n'}, []byte{' '}, -1)
 }
 
 // large-scale pattern routines (those patterns living in patterns.{spat,prob} files)
@@ -815,14 +820,14 @@ var spat_patterndict = make(map[uint64]int) // hash(neighborhood_gridcular()) ->
 func load_spat_patterndict(f *os.File) {
     scanner := bufio.NewScanner(f)
     for scanner.Scan() {
-        line := scanner.Text()
+        line := scanner.Bytes()
         // line: 71 6 ..X.X..OO.O..........#X...... 33408f5e 188e9d3e 2166befe aa8ac9e 127e583e 1282462e 5e3d7fe 51fc9ee
-        if strings.HasPrefix(line, "#") {
+        if bytes.HasPrefix(line, []byte{'#'}) {
             continue
         }
-        neighborhood := strings.Replace(strings.Replace(strings.Split(line, " ")[2], "#", " ", -1), "O", "x", -1)
-        if id, err := strconv.ParseInt(strings.Split(line, " ")[0], 10, 0); err == nil {
-            spat_patterndict[HashString(neighborhood)] = int(id)
+        neighborhood := bytes.Replace(bytes.Replace(bytes.Split(line, []byte{' '})[2], []byte{'#'}, []byte{' '}, -1), []byte{'O'}, []byte{'x'}, -1)
+        if id, err := binary.Varint(bytes.Split(line, []byte{' '})[0]); err > 0 {
+            spat_patterndict[HashByteSlice(neighborhood)] = int(id)
         }
     }
 }
@@ -849,8 +854,8 @@ func load_large_patterns(f *os.File) {
 
 // Yield progressively wider-diameter gridcular board neighborhood
 // stone configuration strings, in all possible rotations
-func neighborhood_gridcular(board string, c int, done chan bool) chan string {
-    ch := make(chan string)
+func neighborhood_gridcular(board []byte, c int, done chan bool) chan []byte {
+    ch := make(chan []byte)
 
     go func() {
         defer close(ch)
@@ -865,20 +870,20 @@ func neighborhood_gridcular(board string, c int, done chan bool) chan string {
             {{1,0},{1,-1}},
             {{1,0},{-1,-1}},
         }
-        wboard := strings.Replace(board, "\n", " ", -1)
+        wboard := bytes.Replace(board, []byte{'\n'}, []byte{' '}, -1)
         for _, dseq := range(pat_gridcular_seq) {
             for ri := 0; ri < len(rotations); ri++ {
                 r := rotations[ri]
-                neighborhood := ""
+                neighborhood := []byte{}
                 for _, o := range(dseq) {
                     y, x := divmod(c - (W+1), W)
                     y += o[r[0][0]]*r[1][0]
                     x += o[r[0][1]]*r[1][1]
                     if y >= 0 && y < N && x >= 0 && x < N {
                         si := (y+1)*W + x+1
-                        neighborhood += wboard[si:si+1]
+                        neighborhood = append(neighborhood, wboard[si])
                     } else {
-                        neighborhood += " "
+                        neighborhood = append(neighborhood, byte(' '))
                     }
                 }
                 select {
@@ -896,13 +901,13 @@ func neighborhood_gridcular(board string, c int, done chan bool) chan string {
 // return probability of large-scale pattern at coordinate c.
 // Multiple progressively wider patterns may match a single coordinate,
 // we consider the largest one.
-func large_pattern_probability(board string, c int) float32 {
+func large_pattern_probability(board []byte, c int) float32 {
     probability := float32(NONE)
     matched_len := 0
     non_matched_len := 0
     done := make(chan bool)
     for n := range(neighborhood_gridcular(board, c, done)) {
-        sp_i, good_sp_i := spat_patterndict[HashString(n)]
+        sp_i, good_sp_i := spat_patterndict[HashByteSlice(n)]
         if good_sp_i {
             prob, good_prob := large_patterns[sp_i]
             if good_prob {
@@ -945,7 +950,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         if rand.Float32() <= probs["capture"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
-                if strings.ContainsAny(pos.board[c:c+1], "Xx") {
+                if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
                     // in_atari, ds = fix_atari(pos, c, twolib_edgeonly=not expensive_ok)
                     _, ds := fix_atari(pos, c, false, true, !(expensive_ok))
                     ShuffleInt(ds)
@@ -965,7 +970,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         if rand.Float32() <= probs["pat3"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
-                if pos.board[c:c+1] == "." && !(intInSlice(already_suggested, c)) && stringInSlice(pat3set, neighborhood_33(pos.board, c)) {
+                if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && bytesInSlice(pat3set, neighborhood_33(pos.board, c)) {
                     r.intResult = c
                     r.strResult = "pat3"
                     ch <- r
@@ -1138,7 +1143,7 @@ func (tn *TreeNode) expand() {
             // Check how big group we are capturing; coord of the group is
             // second word in the ``kind`` string
             coord, _ := strconv.ParseInt(strings.Split(kind, " ")[1], 10, 32)
-            if strings.Count(floodfill(tn.pos.board, int(coord)), "#") > 1 {
+            if bytes.Count(floodfill(tn.pos.board, int(coord)), []byte{'#'}) > 1 {
                 node.pv += PRIOR_CAPTURE_MANY
                 node.pw += PRIOR_CAPTURE_MANY
             } else {
@@ -1473,18 +1478,18 @@ func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNod
 // def print_pos(pos, f=sys.stderr, owner_map=None):
 func print_pos(pos Position, f *os.File, owner_map []float32) {
     var Xcap, Ocap int
-    var board string
+    var board []byte
     if pos.n % 2 == 0 { // to-play is black
-        board = strings.Replace(pos.board, "x", "O", -1)
+        board = bytes.Replace(pos.board, []byte{'x'}, []byte{'O'}, -1)
         Xcap, Ocap = pos.cap[0], pos.cap[1]
     } else { // to-play is white
-        board = strings.Replace(strings.Replace(pos.board, "X", "O", -1), "x", "X", -1)
+        board = bytes.Replace(bytes.Replace(pos.board, []byte{'X'}, []byte{'O'}, -1), []byte{'x'}, []byte{'X'}, -1)
         Ocap, Xcap = pos.cap[0], pos.cap[1]
     }
     fmt.Fprintf(f, "Move: %-3d   Black: %d caps   White: %d caps   Komi: %.1f\n", pos.n, Xcap, Ocap, pos.komi)
-    pretty_board := strings.Join(strings.Split(board, ""), " ")
+    pretty_board := strings.Join(strings.Split(string(board[:]), ""), " ")
     if pos.last >= 0 {
-        pretty_board = pretty_board[:pos.last*2-1] + "(" + board[pos.last:pos.last+1] + ")" + pretty_board[pos.last*2+2:]
+        pretty_board = pretty_board[:pos.last*2-1] + "(" + string(board[pos.last:pos.last+1]) + ")" + pretty_board[pos.last*2+2:]
     }
     pb := []string{}
     for i, row := range(strings.Split(pretty_board, "\n")[1:N+1]) {
@@ -1495,8 +1500,8 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
     if len(owner_map) > 0 {
         pretty_ownermap := ""
         for c := 0; c < W*W-1; c++ {
-            if IsSpace(board[c:c+1]) {
-                pretty_ownermap += board[c:c+1]
+            if IsSpace(board[c]) {
+                pretty_ownermap += string(board[c:c+1])
             } else if owner_map[c] > 0.6 {
                 pretty_ownermap += "X"
             } else if owner_map[c] > 0.3 {
@@ -1573,22 +1578,8 @@ func dump_subtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
     }
 }
 
-func print_debug(tree *TreeNode, depth int) {
-    indent := strings.Repeat(" ", depth)
-    fmt.Fprintf(os.Stderr, "%s%3d: %3d %3d %3d | %d/%d %d/%d %d/%d | %d\n",
-                indent, tree.pos.n, tree.pos.last, tree.pos.last2, tree.pos.ko,
-                tree.pw, tree.pv, tree.w, tree.v, tree.aw, tree.av, len(tree.children))
-    for _, child := range(tree.children) {
-        print_debug(child, depth+2)
-    }
-}
-
 // def print_tree_summary(tree, sims, f=sys.stderr):
 func print_tree_summary(tree *TreeNode, sims int, f *os.File) {
-    if false {
-        log.Println("print_tree_summary(): ", sims)
-        print_debug(tree, 0)
-    }
     var exists bool
     var best_nodes []*TreeNode
     if len(tree.children) < 5 {
@@ -1676,7 +1667,7 @@ func game_io(computer_black bool) {
             c := parse_coord(sc)
             if c >= 0 {
                 // Not a pass
-                if tree.pos.board[c:c+1] != "." {
+                if tree.pos.board[c] != '.' {
                     fmt.Println("Bad move (not empty point)")
                     continue
                 }
