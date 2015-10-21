@@ -174,7 +174,7 @@ func floodfill(board []byte, c int) []byte {
             }
         }
     }
-    return board
+    return local_board
 }
 
 // Regex that matches various kind of points adjecent to '#' (floodfilled) points
