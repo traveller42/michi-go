@@ -149,9 +149,8 @@ func diag_neighbors(c int) []int {
 }
 
 func board_put(board []byte, c int, p byte) []byte {
-    local_board := append([]byte{}, board...)
-    local_board[c] = p
-    return local_board
+    board[c] = p
+    return board
 }
 
 // replace continuous-color area starting at c with special color #
@@ -353,7 +352,8 @@ func (p Position) move(c int) (Position, string) {
     // Are we trying to play in enemy's eye?
     in_enemy_eye := is_eyeish(p.board, c) == 'x'
 
-    board := board_put(p.board, c, 'X')
+    board := append([]byte{}, p.board...)
+    board = board_put(board, c, 'X')
     // Test for captures, and track ko
     capX := p.cap[0]
     singlecaps := []int{}
