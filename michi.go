@@ -176,39 +176,53 @@ func floodfill(board []byte, c int) []byte {
     return local_board
 }
 
+// Unused code that matches the Python implementation left for reference
+
 // Regex that matches various kind of points adjecent to '#' (floodfilled) points
-func make_contact_res() map[byte]*regexp.Regexp {
-    temp_map := make(map[byte]*regexp.Regexp)
-    for _, p := range [...]byte{'.', 'x', 'X'} {
-        rp := string([]byte{p})
-        if p == '.' {
-            rp = "\\."
-        }
-        contact_res_src := []string{
-            "#" + rp, // p at right
-            rp + "#", // p at left
-            "#" + strings.Repeat(".", W-1) + rp, // p below
-            rp + strings.Repeat(".", W-1) + "#", // p above
-        }
-        temp_map[p] = regexp.MustCompile("(?s:" + strings.Join(contact_res_src, "|") + ")")
-    }
-    return temp_map
-}
-var contact_res = make_contact_res()
+//func make_contact_res() map[byte]*regexp.Regexp {
+//    temp_map := make(map[byte]*regexp.Regexp)
+//    for _, p := range [...]byte{'.', 'x', 'X'} {
+//        rp := string([]byte{p})
+//        if p == '.' {
+//            rp = "\\."
+//        }
+//        contact_res_src := []string{
+//            "#" + rp, // p at right
+//            rp + "#", // p at left
+//            "#" + strings.Repeat(".", W-1) + rp, // p below
+//            rp + strings.Repeat(".", W-1) + "#", // p above
+//        }
+//        temp_map[p] = regexp.MustCompile("(?s:" + strings.Join(contact_res_src, "|") + ")")
+//    }
+//    return temp_map
+//}
+//var contact_res = make_contact_res()
 
 // test if point of color p is adjecent to color # anywhere
 // on the board; use in conjunction with floodfill for reachability
 func contact(board []byte, p byte) int {
     // m = contact_res[p].search(board)
-    m := contact_res[p].FindIndex(board)
-    if m == nil {
-        return NONE
-    }
+//    m := contact_res[p].FindIndex(board)
+//    if m == nil {
+//        return NONE
+//    }
     // return m.start() if m.group(0)[0] == p else m.end() - 1
-    if board[m[0]] == p {
-        return m[0]
+//    if board[m[0]] == p {
+//        return m[0]
+//    }
+//    return m[1] - 1
+
+    // Replace regex due to high cost of backtracking
+    for i := W; i < len(board)-W-1; i++ {
+        if board[i] == '#' {
+            for _, j := range(neighbors(i)) {
+                if board[j] == p {
+                    return j
+                }
+            }
+        }
     }
-    return m[1] - 1
+    return NONE
 }
 
 // functions added to replace Python functions and methods
