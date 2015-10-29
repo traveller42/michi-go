@@ -428,16 +428,18 @@ func (p Position) pass_move() (Position, string) {
 // Generate a list of moves (includes false positives - suicide moves;
 // does not include true-eye-filling moves), starting from a given board
 // index (that can be used for randomization)
-func (p Position) moves(i0 int) chan int {
+func (p Position) moves(i0 int, done chan struct{}) chan int {
     c := make(chan int)
 
     go func() {
+        defer close(c)
+
         i := i0 - 1
         passes := 0
         for {
             index := bytes.Index(p.board[i+1:], []byte{'.'})
             if passes > 0 && (index == -1 || i+index >= i0) {
-                break // we have looked through the whole board
+                return // we have looked through the whole board
             }
             if index == -1 {
                 i = 0
@@ -450,10 +452,14 @@ func (p Position) moves(i0 int) chan int {
                 continue
             }
             // yield i
-            c <- i
+            select {
+                case c <- i:
+                case <- done:
+                    return
+            }
         }
 
-        close(c)
+        // close(c) defer'd
     }()
     return c
 }
@@ -871,7 +877,7 @@ func load_large_patterns(f *os.File) {
 
 // Yield progressively wider-diameter gridcular board neighborhood
 // stone configuration strings, in all possible rotations
-func neighborhood_gridcular(board []byte, c int, done chan bool) chan []byte {
+func neighborhood_gridcular(board []byte, c int, done chan struct{}) chan []byte {
     ch := make(chan []byte)
 
     go func() {
@@ -922,7 +928,7 @@ func large_pattern_probability(board []byte, c int) float32 {
     probability := float32(NONE)
     matched_len := 0
     non_matched_len := 0
-    done := make(chan bool)
+    done := make(chan struct{})
     for n := range(neighborhood_gridcular(board, c, done)) {
         sp_i, good_sp_i := spat_patterndict[HashByteSlice(n)]
         if good_sp_i {
@@ -957,11 +963,12 @@ func large_pattern_probability(board []byte, c int) float32 {
 type Result struct { intResult int
                      strResult string}
 
-func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float32, expensive_ok bool) chan Result {
+func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float32, expensive_ok bool, done chan struct{}) chan Result {
     ch := make(chan Result)
     var r Result
 
     go func() {
+        defer close(ch)
         // Check whether any local group is in atari and fill that liberty
         // print('local moves', [str_coord(c) for c in heuristic_set], file=sys.stderr)
         if rand.Float32() <= probs["capture"] {
@@ -975,7 +982,11 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
                         if !(intInSlice(already_suggested, d)) {
                             r.intResult = d
                             r.strResult = "capture " + strconv.FormatInt(int64(c), 10)
-                            ch <- r
+                            select {
+                                case ch <- r:
+                                case <-done:
+                                    return
+                            }
                             already_suggested = append(already_suggested, d)
                         }
                     }
@@ -990,7 +1001,11 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
                 if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && bytesInSlice(pat3set, neighborhood_33(pos.board, c)) {
                     r.intResult = c
                     r.strResult = "pat3"
-                    ch <- r
+                    select {
+                        case ch <- r:
+                        case <-done:
+                            return
+                    }
                     already_suggested = append(already_suggested, c)
                 }
             }
@@ -998,14 +1013,19 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
 
         // Try *all* available moves, but starting from a random point
         // (in other words, suggest a random move)
+        moves_done := make(chan struct{})
         x, y := rand.Intn(N-1)+1, rand.Intn(N-1)+1
-        for c := range(pos.moves(y*W + x)) {
+        for c := range(pos.moves(y*W + x, moves_done)) {
             r.intResult = c
             r.strResult = "random"
-            ch <- r
+            select {
+                case ch <- r:
+                case <-done:
+                    break
+            }
         }
-
-        close(ch)
+        close(moves_done)
+        // close(ch) defer'd at start of routine
     }()
     return ch
 }
@@ -1032,7 +1052,8 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
         // We simply try the moves our heuristics generate, in a particular
         // order, but not with 100% probability; this is on the border between
         // "rule-based playouts" and "probability distribution playouts".
-        for r := range(gen_playout_moves(pos, pos.last_moves_neighbors(), PROB_HEURISTIC, false)) {
+        done := make(chan struct{})
+        for r := range(gen_playout_moves(pos, pos.last_moves_neighbors(), PROB_HEURISTIC, false, done)) {
             c := r.intResult
             kind := r.strResult
             if disp && kind != "random" {
@@ -1069,6 +1090,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             }
             break
         }
+        close(done)
         if pos2.n == NONE { // no valid moves, pass
             pos, _ = pos.pass_move()
             passes += 1
@@ -1140,7 +1162,8 @@ func (tn *TreeNode) expand() {
     for i := N; i < (N+1)*W; i++ {
         seed_set = append(seed_set, i)
     }
-    for r:= range(gen_playout_moves(tn.pos, seed_set, map[string]float32{"capture": 1, "pat3": 1}, true)) {
+    done := make(chan struct{})
+    for r:= range(gen_playout_moves(tn.pos, seed_set, map[string]float32{"capture": 1, "pat3": 1}, true, done)) {
         c := r.intResult
         kind := r.strResult
         pos2, err := tn.pos.move(c)
@@ -1172,6 +1195,7 @@ func (tn *TreeNode) expand() {
             node.pw += PRIOR_PAT3
         }
     }
+    close(done)
 
     // Second pass setting priors, considering each move just once now
     for _, node := range(tn.children) {
