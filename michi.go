@@ -256,15 +256,15 @@ func SwapCase(str []byte) []byte {
 
 // create routines to replace random.shuffle() in Python
 func ShuffleInt(a []int) {
-    for i := range a {
-        j := rand.Intn(i + 1)
+    for i := len(a)-1; i > 0; i-- {
+        j := rand.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
 
 func ShuffleTree(a []*TreeNode) {
-    for i := range a {
-        j := rand.Intn(i + 1)
+    for i := len(a)-1; i > 0; i-- {
+        j := rand.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
