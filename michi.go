@@ -6,7 +6,6 @@ package main
 import (
     "bufio"
     "bytes"
-    "encoding/binary"
     "fmt"
     "hash/fnv"
     "log"
@@ -849,7 +848,7 @@ func load_spat_patterndict(f *os.File) {
             continue
         }
         neighborhood := bytes.Replace(bytes.Replace(bytes.Split(line, []byte{' '})[2], []byte{'#'}, []byte{' '}, -1), []byte{'O'}, []byte{'x'}, -1)
-        if id, err := binary.Varint(bytes.Split(line, []byte{' '})[0]); err > 0 {
+        if id, err := strconv.ParseInt(string(bytes.Split(line, []byte{' '})[0]), 10, 0); err == nil {
             spat_patterndict[HashByteSlice(neighborhood)] = int(id)
         }
     }
