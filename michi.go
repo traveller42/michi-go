@@ -437,7 +437,7 @@ func (p Position) moves(i0 int, done chan struct{}) chan int {
         passes := 0
         for {
             index := bytes.Index(p.board[i+1:], []byte{'.'})
-            if passes > 0 && (index == -1 || i+index >= i0) {
+            if passes > 0 && (index == -1 || i+index+1 >= i0) {
                 return // we have looked through the whole board
             }
             if index == -1 {
@@ -707,7 +707,7 @@ func cfg_distance(board []byte, c int) []int {
 func line_height(c int) int {
     row, col := divmod(c - (W+1), W)
     minVal := row
-    for testVal := range([]int{col, N-1-row, N-1-col}) {
+    for _, testVal := range([]int{col, N-1-row, N-1-col}) {
         if testVal < minVal {
             minVal = testVal
         }
@@ -892,24 +892,27 @@ func neighborhood_gridcular(board []byte, c int, done chan struct{}) chan []byte
             {{1,0},{1,-1}},
             {{1,0},{-1,-1}},
         }
+        neighborhood := [][]byte{}
+        for ri := 0; ri < len(rotations); ri++ {
+            neighborhood = append(neighborhood, []byte{})
+        }
         wboard := bytes.Replace(board, []byte{'\n'}, []byte{' '}, -1)
         for _, dseq := range(pat_gridcular_seq) {
             for ri := 0; ri < len(rotations); ri++ {
                 r := rotations[ri]
-                neighborhood := []byte{}
                 for _, o := range(dseq) {
                     y, x := divmod(c - (W+1), W)
                     y += o[r[0][0]]*r[1][0]
                     x += o[r[0][1]]*r[1][1]
                     if y >= 0 && y < N && x >= 0 && x < N {
                         si := (y+1)*W + x+1
-                        neighborhood = append(neighborhood, wboard[si])
+                        neighborhood[ri] = append(neighborhood[ri], wboard[si])
                     } else {
-                        neighborhood = append(neighborhood, byte(' '))
+                        neighborhood[ri] = append(neighborhood[ri], byte(' '))
                     }
                 }
                 select {
-                    case ch <- neighborhood:
+                    case ch <- neighborhood[ri]:
                     case <-done:
                         return
                 }
@@ -1169,7 +1172,7 @@ func (tn *TreeNode) expand() {
         if err != "ok" {
             continue
         }
-        // n_playout_moves() will generate duplicate suggestions
+        // gen_playout_moves() will generate duplicate suggestions
         // if a move is yielded by multiple heuristics
         node, ok := childset[pos2.last]
         if !ok {
