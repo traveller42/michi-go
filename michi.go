@@ -736,7 +736,7 @@ func empty_area(board []byte, c, dist int) bool {
 // in-memory set.
 func pat3_expand(pat [][]byte) [][]byte {
     pat_rot90 := func(p [][]byte) [][]byte {
-        return [][]byte{{p[2][0], p[1][0], p[2][0]},
+        return [][]byte{{p[2][0], p[1][0], p[0][0]},
                         {p[2][1], p[1][1], p[0][1]},
                         {p[2][2], p[1][2], p[0][2]}}
     }
@@ -769,7 +769,7 @@ func pat3_expand(pat [][]byte) [][]byte {
         }
         l := [][]byte{}
         for _, t := range(bytes.Split(to, []byte{})) {
-            l = append(l, pat_wildexp(append(append(p[:i], t[0]), p[i+1:]...), c, to)...)
+            l = append(l, pat_wildexp(append(append(append([]byte{}, p[:i]...), t[0]), p[i+1:]...), c, to)...)
         }
         return l
     }
@@ -805,14 +805,7 @@ func pat3set_func() [][]byte {
     for _, p := range(pat3src) {
         for _, s := range(pat3_expand(p)) {
             s = bytes.Replace(s, []byte{'O'}, []byte{'x'}, -1)
-            unique := true
-            for _, t := range(l) {
-                if bytes.Equal(s, t) {
-                    unique = false
-                    break
-                }
-            }
-            if unique {
+            if !bytesInSlice(l, s) {
                 l = append(l, s)
             }
         }
