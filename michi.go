@@ -278,13 +278,9 @@ func intInSlice(intSlice []int, intTest int) bool {
     return false
 }
 
-func bytesInSlice(strSlice [][]byte, strTest []byte) bool {
-    for _, str := range strSlice {
-        if bytes.Equal(str, strTest) {
-            return true
-        }
-    }
-    return false
+func patternInSet(strSlice map[string]struct{}, strTest []byte) bool {
+    _, exists := strSlice[string(strTest)]
+    return exists
 }
 
 // test for edge of board
@@ -800,17 +796,15 @@ func pat3_expand(pat [][]byte) [][]byte {
     return rl
 }
 
-func pat3set_func() [][]byte {
-    l := [][]byte{}
+func pat3set_func() map[string]struct{} {
+    m := make(map[string]struct{})
     for _, p := range(pat3src) {
         for _, s := range(pat3_expand(p)) {
             s = bytes.Replace(s, []byte{'O'}, []byte{'x'}, -1)
-            if !bytesInSlice(l, s) {
-                l = append(l, s)
-            }
+            m[string(s)] = struct{}{}
         }
     }
-    return l
+    return m
 }
 var pat3set = pat3set_func()
 
@@ -993,7 +987,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         if rand.Float32() <= probs["pat3"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
-                if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && bytesInSlice(pat3set, neighborhood_33(pos.board, c)) {
+                if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && patternInSet(pat3set, neighborhood_33(pos.board, c)) {
                     r.intResult = c
                     r.strResult = "pat3"
                     select {
