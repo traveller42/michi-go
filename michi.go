@@ -1628,7 +1628,10 @@ func print_tree_summary(tree *TreeNode, sims int, f *os.File) {
     }
     seq_string := ""
     if len(best_seq) < 6 {
-        for _, c := range(best_seq) {
+        for i, c := range(best_seq) {
+            if i == 0 {
+                continue
+            }
             seq_string += str_coord(c) + " "
         }
     } else {
