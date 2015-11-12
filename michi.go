@@ -1279,7 +1279,7 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
         }
 
         // Pick the most urgent child
-        children := nodes[len(nodes)-1].children
+        children := append([]*TreeNode{}, nodes[len(nodes)-1].children...)
         if disp {
             for _, child := range(children) {
                 // dump_subtree(c, recurse=False)
@@ -1291,7 +1291,10 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
         // node = max(children, key=lambda node: node.rave_urgency())
         node := children[0]
         max_rave := node.rave_urgency()
-        for _, c := range(children) {
+        for i, c := range(children) {
+            if i == 0 { // skip item 0 as we already have its data
+                continue
+            }
             test_rave := c.rave_urgency()
             if test_rave > max_rave {
                 node = c
