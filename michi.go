@@ -1275,7 +1275,7 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
     passes := 0
     for len(nodes[len(nodes)-1].children) > 0 && passes < 2 {
         if disp {
-            print_pos(nodes[len(nodes)-1].pos, os.Stderr, []float32{})
+            print_pos(nodes[len(nodes)-1].pos, os.Stderr, nil)
         }
 
         // Pick the most urgent child
@@ -1464,7 +1464,7 @@ func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNod
             incoming = incoming[:len(incoming)-1]
             tree_update(result.nodes, result.amaf_map, result.score, disp)
             for c := 0; c < W*W; c++ {
-                owner_map[c] = result.owner_map[c]
+                owner_map[c] += result.owner_map[c]
             }
         }
 
@@ -1731,7 +1731,7 @@ func game_io(computer_black bool) {
                 }
             }
             // print_pos(tree.pos)
-            print_pos(tree.pos, os.Stdout, owner_map)
+            print_pos(tree.pos, os.Stdout, nil)
         }
 
         owner_map = make([]float32, W*W)
@@ -1858,7 +1858,7 @@ func gtp_io()  {
         } else if command[0] == "version" {
             ret = "simple go program demo (in Go!)"
         } else if command[0] == "tsdebug" {
-            print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, []float32{})
+            print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
         } else if command[0] == "list_commands" {
             ret = strings.Join(known_commands, "\n")
         } else if command[0] == "known_command" {
@@ -1928,13 +1928,13 @@ func main() {
         fmt.Println(mcbenchmark(20))
     } else if os.Args[1] == "tsbenchmark" {
         t_start := time.Now()
-        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), false).pos, os.Stderr, []float32{})
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), false).pos, os.Stderr, nil)
         t_end := time.Now()
         fmt.Printf("Tree search with %d playouts took %s with %d threads; speed is %.3f playouts/thread/s\n",
                    N_SIMS, t_end.Sub(t_start).String(), runtime.GOMAXPROCS(0),
                    float64(N_SIMS) / (t_end.Sub(t_start).Seconds() * float64(runtime.GOMAXPROCS(0))))
     } else if os.Args[1] == "tsdebug" {
-        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), true).pos, os.Stderr, []float32{})
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), true).pos, os.Stderr, nil)
     } else {
         fmt.Fprintln(os.Stderr, "Unknown action")
     }
