@@ -8,7 +8,6 @@ import (
     "bytes"
     "fmt"
     "hash/fnv"
-    "log"
     "math"
     "math/rand"
     "os"
@@ -287,6 +286,8 @@ func patternInSet(strSlice map[string]struct{}, strTest []byte) bool {
 func IsSpace(b byte) bool {
     return bytes.Contains([]byte{' ','\n'}, []byte{b})
 }
+
+// End of functions added to replace Python functions and methods
 
 // test if c is inside a single-color diamond and return the diamond
 // color or None; this could be an eye, but also a false one
@@ -1560,8 +1561,9 @@ func print_pos(pos Position, f *os.File, owner_map []float32) {
     fmt.Fprintln(f, "")
 }
 
-// Sort a slice of TreeNode by the v field
-// Return with Max v
+// Sort a slice of TreeNode by the v field starting with Max v
+// Return sorted slice
+// This replaces a sort using a lambda function in the original Python
 func Best_Nodes(nodes []*TreeNode) []*TreeNode {
     var i_max, v_max int
 
@@ -1856,7 +1858,7 @@ func gtp_io()  {
         } else if command[0] == "name" {
             ret = "michi-go"
         } else if command[0] == "version" {
-            ret = "simple go program demo (in Go!)"
+            ret = "1.0"
         } else if command[0] == "tsdebug" {
             print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
         } else if command[0] == "list_commands" {
@@ -1889,8 +1891,6 @@ func gtp_io()  {
 }
 
 func main() {
-    log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-    log.Println("Start")
     pattern_load_error := false
     f, err := os.Open(spat_patterndict_file)
     if err == nil {
@@ -1938,5 +1938,4 @@ func main() {
     } else {
         fmt.Fprintln(os.Stderr, "Unknown action")
     }
-    log.Println("End")
 }
