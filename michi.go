@@ -1914,6 +1914,8 @@ func main() {
         fmt.Fprintln(os.Stderr, "Done.")
     }
 
+    rand.Seed(time.Now().UTC().UnixNano())
+
     if len(os.Args) < 2 {
         // Default action
         game_io(false)
