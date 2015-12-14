@@ -54,7 +54,7 @@ const (
     PRIOR_EMPTYAREA = 10
     REPORT_PERIOD = 200
 )
-var PROB_HEURISTIC = map[string]float32{
+var PROB_HEURISTIC = map[string]float64{
     "capture": 0.9,
     "pat3": 0.95,
     }  // probability of heuristic suggestions being taken in playout
@@ -350,7 +350,7 @@ type Position struct {
     ko int       // location of prohibited move under simple ko rules
     last int     // previous move
     last2 int    // antepenultimate move
-    komi float32
+    komi float64
 }
 
 // play as player X at the given coord c, return the new position
@@ -488,12 +488,12 @@ func (p Position) last_moves_neighbors() []int {
 // with all dead stones captured; if owner_map is passed, it is assumed
 // to be an array of statistics with average owner at the end of the game
 // (+1 black, -1 white)
-func (p Position) score(owner_map []float32) float32 {
+func (p Position) score(owner_map []float64) float64 {
     board := append([]byte{}, p.board...)
     var fboard []byte
     var touches_X, touches_x bool
-    var komi float32
-    var n float32
+    var komi float64
+    var n float64
     i := 0
     for {
         index := bytes.Index(p.board[i+1:], []byte{'.'})
@@ -535,7 +535,7 @@ func (p Position) score(owner_map []float32) float32 {
             owner_map[c] += n
         }
     }
-    return float32(bytes.Count(board, []byte{'X'}) - bytes.Count(board, []byte{'x'})) + komi
+    return float64(bytes.Count(board, []byte{'X'}) - bytes.Count(board, []byte{'x'})) + komi
 }
 
 // Return an initial board position
@@ -842,7 +842,7 @@ func load_spat_patterndict(f *os.File) {
     }
 }
 
-var large_patterns = make(map[int]float32) // spatial id -> probability
+var large_patterns = make(map[int]float64) // spatial id -> probability
 
 // dictionary of numeric pattern ids, translating them to probabilities
 // that a move matching such move will be played when it is available
@@ -852,10 +852,10 @@ func load_large_patterns(f *os.File) {
     for scanner.Scan() {
         line := scanner.Text()
         // line: 0.004 14 3842 (capture:17 border:0 s:784)
-        if p, err := strconv.ParseFloat(strings.Split(line, " ")[0],32); err == nil {
+        if p, err := strconv.ParseFloat(strings.Split(line, " ")[0],64); err == nil {
             if m := re.FindStringSubmatch(line); m != nil {
                 if s, err := strconv.ParseInt(m[1], 10, 0); err == nil {
-                    large_patterns[int(s)] = float32(p)
+                    large_patterns[int(s)] = p
                 }
             }
         }
@@ -914,8 +914,8 @@ func neighborhood_gridcular(board []byte, c int, done chan struct{}) chan []byte
 // return probability of large-scale pattern at coordinate c.
 // Multiple progressively wider patterns may match a single coordinate,
 // we consider the largest one.
-func large_pattern_probability(board []byte, c int) float32 {
-    probability := float32(NONE)
+func large_pattern_probability(board []byte, c int) float64 {
+    probability := float64(NONE)
     matched_len := 0
     non_matched_len := 0
     done := make(chan struct{})
@@ -953,7 +953,7 @@ func large_pattern_probability(board []byte, c int) float32 {
 type Result struct { intResult int
                      strResult string}
 
-func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float32, expensive_ok bool, done chan struct{}) chan Result {
+func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float64, expensive_ok bool, done chan struct{}) chan Result {
     ch := make(chan Result)
     var r Result
 
@@ -961,7 +961,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         defer close(ch)
         // Check whether any local group is in atari and fill that liberty
         // print('local moves', [str_coord(c) for c in heuristic_set], file=sys.stderr)
-        if rand.Float32() <= probs["capture"] {
+        if rand.Float64() <= probs["capture"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
@@ -985,7 +985,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         }
 
         // Try to apply a 3x3 pattern on the local neighborhood
-        if rand.Float32() <= probs["pat3"] {
+        if rand.Float64() <= probs["pat3"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
                 if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && patternInSet(pat3set, neighborhood_33(pos.board, c)) {
@@ -1025,10 +1025,10 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
 // amaf_map is board-sized scratchpad recording who played at a given
 // position first
 // def mcplayout(pos, amaf_map, disp=False):
-func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float32) {
+func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float64) {
     var err string
     var pos2 Position
-    var prob_reject float32
+    var prob_reject float64
     if disp {
         fmt.Fprintln(os.Stderr, "** SIMULATION **")
     }
@@ -1060,7 +1060,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
             } else {
                 prob_reject = PROB_SSAREJECT
             }
-            if rand.Float32() <= prob_reject {
+            if rand.Float64() <= prob_reject {
                 // in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
                 in_atari, _ := fix_atari(pos2, c, true, true, true)
                 if in_atari {
@@ -1089,7 +1089,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float32, []int, []float
         passes = 0
         pos = pos2
     }
-    owner_map := make([]float32, W*W)
+    owner_map := make([]float64, W*W)
     score := pos.score(owner_map)
     if disp {
         if pos.n % 2 == 0 {
@@ -1153,7 +1153,7 @@ func (tn *TreeNode) expand() {
         seed_set = append(seed_set, i)
     }
     done := make(chan struct{})
-    for r:= range(gen_playout_moves(tn.pos, seed_set, map[string]float32{"capture": 1, "pat3": 1}, true, done)) {
+    for r:= range(gen_playout_moves(tn.pos, seed_set, map[string]float64{"capture": 1, "pat3": 1}, true, done)) {
         c := r.intResult
         kind := r.strResult
         pos2, err := tn.pos.move(c)
@@ -1220,7 +1220,7 @@ func (tn *TreeNode) expand() {
 
         patternprob := large_pattern_probability(tn.pos.board, c)
         if patternprob > 0.001 {
-            pattern_prior := float32(math.Sqrt(float64(patternprob))) // tone up
+            pattern_prior := math.Sqrt(patternprob) // tone up
             node.pv += int(pattern_prior * PRIOR_LARGEPATTERN)
             node.pw += int(pattern_prior * PRIOR_LARGEPATTERN)
         }
@@ -1233,22 +1233,22 @@ func (tn *TreeNode) expand() {
     }
 }
 
-func (tn *TreeNode) rave_urgency() float32 {
+func (tn *TreeNode) rave_urgency() float64 {
     v := tn.v + tn.pv
-    expectation := float32(tn.w + tn.pw) / float32(v)
+    expectation := float64(tn.w + tn.pw) / float64(v)
     if tn.av == 0 {
         return expectation
     }
-    rave_expectation := float32(tn.aw) / float32(tn.av)
-    beta := float32(tn.av) / (float32(tn.av + v) + float32(v) * float32(tn.av) / RAVE_EQUIV)
+    rave_expectation := float64(tn.aw) / float64(tn.av)
+    beta := float64(tn.av) / (float64(tn.av + v) + float64(v) * float64(tn.av) / RAVE_EQUIV)
     return beta * rave_expectation + (1-beta) * expectation
 }
 
-func (tn *TreeNode) winrate() float32 {
+func (tn *TreeNode) winrate() float64 {
     if tn.v > 0 {
-        return float32(tn.w) / float32(tn.v)
+        return float64(tn.w) / float64(tn.v)
     } else {
-        return float32(math.NaN())
+        return math.NaN()
     }
 }
 
@@ -1331,7 +1331,7 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
 
 // Store simulation result in the tree (@nodes is the tree path)
 // def tree_update(nodes, amaf_map, score, disp=False):
-func tree_update(nodes []*TreeNode, amaf_map []int, score float32, disp bool) {
+func tree_update(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
     local_nodes := nodes
     for i, j := 0, len(local_nodes)-1; i < j; i, j = i+1, j-1 { // reverse the order
         local_nodes[i], local_nodes[j] = local_nodes[j], local_nodes[i]
@@ -1380,7 +1380,7 @@ func tree_update(nodes []*TreeNode, amaf_map []int, score float32, disp bool) {
 
 // Perform MCTS search from a given position for a given #iterations
 // def tree_search(tree, n, owner_map, disp=False):
-func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNode {
+func tree_search(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNode {
     // Initialize root node
     if len(tree.children) == 0 {
         tree.expand()
@@ -1409,8 +1409,8 @@ func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNod
     type Job struct {
         nodes []*TreeNode
         amaf_map []int
-        owner_map []float32
-        score float32
+        owner_map []float64
+        score float64
     }
     type JobResult struct {
         n int
@@ -1493,7 +1493,7 @@ func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNod
     close(jr)
 
     for c:= 0; c < W*W; c++ {
-        owner_map[c] = owner_map[c] / float32(i)
+        owner_map[c] = owner_map[c] / float64(i)
     }
     dump_subtree(tree, N_SIMS/50, 0, os.Stderr, true)
     print_tree_summary(tree, i, os.Stderr)
@@ -1510,7 +1510,7 @@ func tree_search(tree *TreeNode, n int, owner_map []float32, disp bool) *TreeNod
 // including an owner map statistic (probability of that area of board
 // eventually becoming black/white)
 // def print_pos(pos, f=sys.stderr, owner_map=None):
-func print_pos(pos Position, f *os.File, owner_map []float32) {
+func print_pos(pos Position, f *os.File, owner_map []float64) {
     var Xcap, Ocap int
     var board []byte
     if pos.n % 2 == 0 { // to-play is black
@@ -1592,11 +1592,11 @@ func Best_Nodes(nodes []*TreeNode) []*TreeNode {
 // print this node and all its children with v >= thres.
 // def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
 func dump_subtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
-    var float_val float32
+    var float_val float64
     if node.av > 0 {
-        float_val = float32(node.aw)/float32(node.av)
+        float_val = float64(node.aw)/float64(node.av)
     } else{
-        float_val = float32(math.NaN())
+        float_val = math.NaN()
     }
     fmt.Fprintf(f, "%s+- %s %.3f (%d/%d, prior %d/%d, rave %d/%d=%.3f, urgency %.3f)\n",
                 strings.Repeat(" ", indent), str_coord(node.pos.last), node.winrate(),
@@ -1678,13 +1678,13 @@ func str_coord(c int) string {
 // various main programs
 
 // run n Monte-Carlo playouts from empty position, return avg. score
-func mcbenchmark(n int) float32 {
-    var sumscore float32
+func mcbenchmark(n int) float64 {
+    var sumscore float64
     for i := 0; i < n; i++ {
         score, _, _ := mcplayout(empty_position(), make([]int, W*W), false)
         sumscore += score
     }
-    return sumscore / float32(n)
+    return sumscore / float64(n)
 }
 
 // A simple minimalistic text mode UI.
@@ -1693,7 +1693,7 @@ func game_io(computer_black bool) {
     reader := bufio.NewReader(os.Stdin)
     tree := NewTreeNode(empty_position())
     tree.expand()
-    owner_map := make([]float32, W*W)
+    owner_map := make([]float64, W*W)
     for {
         if !(tree.pos.n == 0 && computer_black) {
             print_pos(tree.pos, os.Stdout, owner_map)
@@ -1736,7 +1736,7 @@ func game_io(computer_black bool) {
             print_pos(tree.pos, os.Stdout, nil)
         }
 
-        owner_map = make([]float32, W*W)
+        owner_map = make([]float64, W*W)
         // tree = tree_search(tree, N_SIMS, owner_map)
         tree = tree_search(tree, N_SIMS, owner_map, false)
         if tree.pos.last == PASS && tree.pos.last2 == PASS {
@@ -1747,7 +1747,7 @@ func game_io(computer_black bool) {
             fmt.Printf("Game over, score: B%+.1f\n", score)
             break
         }
-        if float32(tree.w)/float32(tree.v) < RESIGN_THRES {
+        if float64(tree.w)/float64(tree.v) < RESIGN_THRES {
             fmt.Println("I resign.")
             break
         }
@@ -1782,7 +1782,7 @@ func gtp_io()  {
             cmdid = command[0]
             command = command[1:]
         }
-        owner_map := make([]float32, W*W)
+        owner_map := make([]float64, W*W)
         ret := ""
         if command[0] == "boardsize" {
             size, _ := strconv.ParseInt(command[1], 10, 0)
@@ -1798,9 +1798,9 @@ func gtp_io()  {
             // tree.pos = Position(board=tree.pos.board, cap=(tree.pos.cap[0], tree.pos.cap[1]),
             //                     n=tree.pos.n, ko=tree.pos.ko, last=tree.pos.last, last2=tree.pos.last2,
             //                     komi=float(command[1]))
-            komi, err := strconv.ParseFloat(command[1], 32)
+            komi, err := strconv.ParseFloat(command[1], 64)
             if err == nil {
-                tree.pos.komi = float32(komi)
+                tree.pos.komi = komi
             }
         } else if command[0] == "play" {
             c := parse_coord(command[2])
@@ -1838,13 +1838,13 @@ func gtp_io()  {
             tree = tree_search(tree, N_SIMS, owner_map, false)
             if tree.pos.last == PASS {
                 ret = "pass"
-            } else if tree.v > 0 && float32(tree.w)/float32(tree.v) < RESIGN_THRES {
+            } else if tree.v > 0 && float64(tree.w)/float64(tree.v) < RESIGN_THRES {
                 ret = "resign"
             } else {
                 ret = str_coord(tree.pos.last)
             }
         } else if command[0] == "final_score" {
-            score := tree.pos.score([]float32{})
+            score := tree.pos.score([]float64{})
             if tree.pos.n % 2 == 1 {
                 score = -score
             }
@@ -1930,13 +1930,13 @@ func main() {
         fmt.Println(mcbenchmark(20))
     } else if os.Args[1] == "tsbenchmark" {
         t_start := time.Now()
-        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), false).pos, os.Stderr, nil)
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float64, W*W), false).pos, os.Stderr, nil)
         t_end := time.Now()
         fmt.Printf("Tree search with %d playouts took %s with %d threads; speed is %.3f playouts/thread/s\n",
                    N_SIMS, t_end.Sub(t_start).String(), runtime.GOMAXPROCS(0),
                    float64(N_SIMS) / (t_end.Sub(t_start).Seconds() * float64(runtime.GOMAXPROCS(0))))
     } else if os.Args[1] == "tsdebug" {
-        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float32, W*W), true).pos, os.Stderr, nil)
+        print_pos(tree_search(NewTreeNode(empty_position()), N_SIMS, make([]float64, W*W), true).pos, os.Stderr, nil)
     } else {
         fmt.Fprintln(os.Stderr, "Unknown action")
     }
