@@ -7,6 +7,7 @@ import (
     "bufio"
     "bytes"
     "fmt"
+    mt64 "github.com/bszcz/mt19937_64"
     "hash/fnv"
     "math"
     "math/rand"
@@ -223,6 +224,9 @@ func contact(board []byte, p byte) int {
     return NONE
 }
 
+// Use Mersenne Twister as Random Number Generator in place of default
+var mt *rand.Rand
+
 // functions added to replace Python functions and methods
 
 // use FNV Hash for Python hash function
@@ -255,14 +259,14 @@ func SwapCase(str []byte) []byte {
 // create routines to replace random.shuffle() in Python
 func ShuffleInt(a []int) {
     for i := len(a)-1; i > 0; i-- {
-        j := rand.Intn(i+1)
+        j := mt.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
 
 func ShuffleTree(a []*TreeNode) {
     for i := len(a)-1; i > 0; i-- {
-        j := rand.Intn(i+1)
+        j := mt.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
@@ -961,7 +965,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         defer close(ch)
         // Check whether any local group is in atari and fill that liberty
         // print('local moves', [str_coord(c) for c in heuristic_set], file=sys.stderr)
-        if rand.Float64() <= probs["capture"] {
+        if mt.Float64() <= probs["capture"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
@@ -985,7 +989,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         }
 
         // Try to apply a 3x3 pattern on the local neighborhood
-        if rand.Float64() <= probs["pat3"] {
+        if mt.Float64() <= probs["pat3"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
                 if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && patternInSet(pat3set, neighborhood_33(pos.board, c)) {
@@ -1004,7 +1008,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         // Try *all* available moves, but starting from a random point
         // (in other words, suggest a random move)
         moves_done := make(chan struct{})
-        x, y := rand.Intn(N-1)+1, rand.Intn(N-1)+1
+        x, y := mt.Intn(N-1)+1, mt.Intn(N-1)+1
         for c := range(pos.moves(y*W + x, moves_done)) {
             r.intResult = c
             r.strResult = "random"
@@ -1060,7 +1064,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
             } else {
                 prob_reject = PROB_SSAREJECT
             }
-            if rand.Float64() <= prob_reject {
+            if mt.Float64() <= prob_reject {
                 // in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
                 in_atari, _ := fix_atari(pos2, c, true, true, true)
                 if in_atari {
@@ -1858,7 +1862,7 @@ func gtp_io()  {
         } else if command[0] == "name" {
             ret = "michi-go"
         } else if command[0] == "version" {
-            ret = "1.0"
+            ret = "pre2.0"
         } else if command[0] == "tsdebug" {
             print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
         } else if command[0] == "list_commands" {
@@ -1914,7 +1918,8 @@ func main() {
         fmt.Fprintln(os.Stderr, "Done.")
     }
 
-    rand.Seed(time.Now().UTC().UnixNano())
+    mt = rand.New(mt64.New())
+	mt.Seed(time.Now().UTC().UnixNano())
 
     if len(os.Args) < 2 {
         // Default action
