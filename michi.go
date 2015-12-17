@@ -24,7 +24,6 @@ import (
 // 'x' (other player), and whitespace (off-board border to make rules
 // implementation easier).  Coordinates are just indices in this string.
 // You can simply print(board) when debugging.
-// "\n".join([(N+1)*' '] + N*[' '+N*'.'] + [(N+2)*' '])
 const (
     N = 13
     W = N + 2
@@ -161,13 +160,10 @@ func floodfill(board []byte, c int) []byte {
     local_board = board_put(local_board, c, '#')
     fringe := []int{c}
     for len(fringe) > 0 {
-        // c = fringe.pop()
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
-        // for d in neighbors(c)
         for _, d := range neighbors(c) {
             if local_board[d] == p {
                 local_board = board_put(local_board, d, '#')
-                // fringe.append(d)
                 fringe = append(fringe, d)
             }
         }
@@ -175,43 +171,9 @@ func floodfill(board []byte, c int) []byte {
     return local_board
 }
 
-// Unused code that matches the Python implementation left for reference
-
-// Regex that matches various kind of points adjecent to '#' (floodfilled) points
-//func make_contact_res() map[byte]*regexp.Regexp {
-//    temp_map := make(map[byte]*regexp.Regexp)
-//    for _, p := range [...]byte{'.', 'x', 'X'} {
-//        rp := string([]byte{p})
-//        if p == '.' {
-//            rp = "\\."
-//        }
-//        contact_res_src := []string{
-//            "#" + rp, // p at right
-//            rp + "#", // p at left
-//            "#" + strings.Repeat(".", W-1) + rp, // p below
-//            rp + strings.Repeat(".", W-1) + "#", // p above
-//        }
-//        temp_map[p] = regexp.MustCompile("(?s:" + strings.Join(contact_res_src, "|") + ")")
-//    }
-//    return temp_map
-//}
-//var contact_res = make_contact_res()
-
 // test if point of color p is adjecent to color # anywhere
 // on the board; use in conjunction with floodfill for reachability
 func contact(board []byte, p byte) int {
-    // m = contact_res[p].search(board)
-//    m := contact_res[p].FindIndex(board)
-//    if m == nil {
-//        return NONE
-//    }
-    // return m.start() if m.group(0)[0] == p else m.end() - 1
-//    if board[m[0]] == p {
-//        return m[0]
-//    }
-//    return m[1] - 1
-
-    // Replace regex due to high cost of backtracking
     for i := W; i < len(board)-W-1; i++ {
         if board[i] == '#' {
             for _, j := range(neighbors(i)) {
@@ -227,9 +189,7 @@ func contact(board []byte, p byte) int {
 // Use Mersenne Twister as Random Number Generator in place of default
 var mt *rand.Rand
 
-// functions added to replace Python functions and methods
-
-// use FNV Hash for Python hash function
+// use FNV Hash to generate key for large pattern map
 func HashByteSlice(s []byte) uint64 {
     h := fnv.New64()
     h.Write(s)
@@ -256,7 +216,7 @@ func SwapCase(str []byte) []byte {
     return bytes.Map(swapCase, str)
 }
 
-// create routines to replace random.shuffle() in Python
+// shuffle slice elements
 func ShuffleInt(a []int) {
     for i := len(a)-1; i > 0; i-- {
         j := mt.Intn(i+1)
@@ -345,7 +305,6 @@ func is_eye(board []byte, c int) byte {
     return eyecolor
 }
 
-// class Position(namedtuple('Position', 'board cap n ko last last2 komi')):
 // Implementation of simple Chinese Go rules
 type Position struct {
     board []byte // string representation of board state
@@ -451,7 +410,6 @@ func (p Position) moves(i0 int, done chan struct{}) chan int {
             if is_eye(p.board, i) == 'X'{
                 continue
             }
-            // yield i
             select {
                 case c <- i:
                 case <- done:
@@ -474,10 +432,8 @@ func (p Position) last_moves_neighbors() []int {
         if c < 0 { // if there was no last move, or pass
             continue
         }
-        // dlist = [c] + list(neighbors(c) + diag_neighbors(c))
         dlist = append([]int{c}, append(neighbors(c), diag_neighbors(c)...)...)
         ShuffleInt(dlist)
-        // clist += [d for d in dlist if d not in clist]
         for _, d := range dlist {
             if intInSlice(clist, d) {
                 continue
@@ -518,7 +474,6 @@ func (p Position) score(owner_map []float64) float64 {
         }
     }
     // now that area is replaced either by X, x or :
-    // komi = self.komi if self.n % 2 == 1 else -self.komi
     if p.n % 2 == 1 {
         komi = p.komi
     } else {
@@ -577,7 +532,6 @@ func empty_position() Position {
 // twolib_edgeonly means that we will check the 2-liberty groups only
 // at the board edge, allowing check of the most common short ladders
 // even in the playouts
-// def fix_atari(pos, c, singlept_ok=False, twolib_test=True, twolib_edgeonly=False):
 func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bool) (bool, []int) {
     // check if a capturable ladder is being pulled out at c and return
     // a move that continues it in that case; expects its two liberties as
@@ -590,7 +544,6 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
             }
             // fix_atari() will recursively call read_ladder_attack() back;
             // however, ignore 2lib groups as we don't have time to chase them
-            // is_atari, atari_escape = fix_atari(pos_l, c, twolib_test=False)
             is_atari, atari_escape := fix_atari(pos_l, c, false, false, false)
             if is_atari && len(atari_escape) > 0 {
                 return l
@@ -641,7 +594,6 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
         if othergroup == NONE {
             break
         }
-        // a, ccls = fix_atari(pos, othergroup, twolib_test=False)
         a, ccls := fix_atari(pos, othergroup, false, false, false)
         if a && len(ccls) > 0 {
             solutions = append(solutions, ccls...)
@@ -683,7 +635,6 @@ func cfg_distance(board []byte, c int) []int {
     // flood-fill like mechanics
     fringe := []int{c}
     for len(fringe) > 0 {
-        // c = fringe.pop()
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
         for _, d := range(neighbors(c)) {
             if IsSpace(board[d]) ||
@@ -717,7 +668,6 @@ func line_height(c int) int {
 }
 
 // Check whether there are any stones in Manhattan distance up to dist
-// def empty_area(board, c, dist=3):
 func empty_area(board []byte, c, dist int) bool {
     for d := range(neighbors(c)) {
         if bytes.Contains([]byte{'X','x'}, []byte{board[d]}) {
@@ -953,7 +903,6 @@ func large_pattern_probability(board []byte, c int) float64 {
 // heuristic_set is the set of coordinates considered for applying heuristics;
 // this is the immediate neighborhood of last two moves in the playout, but
 // the whole board while prioring the tree.
-// def gen_playout_moves(pos, heuristic_set, probs={'capture': 1, 'pat3': 1}, expensive_ok=False):
 type Result struct { intResult int
                      strResult string}
 
@@ -964,12 +913,10 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
     go func() {
         defer close(ch)
         // Check whether any local group is in atari and fill that liberty
-        // print('local moves', [str_coord(c) for c in heuristic_set], file=sys.stderr)
         if mt.Float64() <= probs["capture"] {
             already_suggested := []int{}
             for _, c := range(heuristic_set) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
-                    // in_atari, ds = fix_atari(pos, c, twolib_edgeonly=not expensive_ok)
                     _, ds := fix_atari(pos, c, false, true, !(expensive_ok))
                     ShuffleInt(ds)
                     for _, d := range(ds) {
@@ -1028,7 +975,6 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
 // return score for to-play player at the starting position;
 // amaf_map is board-sized scratchpad recording who played at a given
 // position first
-// def mcplayout(pos, amaf_map, disp=False):
 func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float64) {
     var err string
     var pos2 Position
@@ -1065,7 +1011,6 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
                 prob_reject = PROB_SSAREJECT
             }
             if mt.Float64() <= prob_reject {
-                // in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
                 in_atari, _ := fix_atari(pos2, c, true, true, true)
                 if in_atari {
                     if disp {
@@ -1201,7 +1146,6 @@ func (tn *TreeNode) expand() {
         }
 
         height := line_height(c) // 0-indexed
-        // if height <= 2 and empty_area(self.pos.board, c):
         if height <= 2 && empty_area(tn.pos.board, c, 3) {
             // No stones around; negative prior for 1st + 2nd line, positive
             // for 3rd line; sanitizes opening and invasions
@@ -1215,7 +1159,6 @@ func (tn *TreeNode) expand() {
             }
         }
 
-        // in_atari, ds = fix_atari(node.pos, c, singlept_ok=True)
         in_atari, _ := fix_atari(node.pos, c, true, true, false)
         if in_atari {
             node.pv += PRIOR_SELFATARI
@@ -1287,13 +1230,12 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
         children := append([]*TreeNode{}, nodes[len(nodes)-1].children...)
         if disp {
             for _, child := range(children) {
-                // dump_subtree(c, recurse=False)
                 dump_subtree(child, N_SIMS/50, 0, os.Stderr, false)
             }
         }
         ShuffleTree(children) // randomize the max in case of equal urgency
 
-        // node = max(children, key=lambda node: node.rave_urgency())
+        // find most urgent child by node.rave_urgency()
         node := children[0]
         max_rave := node.rave_urgency()
         for i, c := range(children) {
@@ -1316,7 +1258,6 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
         } else {
             passes = 0
             if amaf_map[node.pos.last] == 0 { // Mark the coordinate with 1 for black
-                // amaf_map[node.pos.last] = 1 if nodes[-2].pos.n % 2 == 0 else -1
                 if nodes[len(nodes)-2].pos.n % 2 == 0 {
                     amaf_map[node.pos.last] = 1
                 } else {
@@ -1334,7 +1275,6 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
 }
 
 // Store simulation result in the tree (@nodes is the tree path)
-// def tree_update(nodes, amaf_map, score, disp=False):
 func tree_update(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
     local_nodes := nodes
     for i, j := 0, len(local_nodes)-1; i < j; i, j = i+1, j-1 { // reverse the order
@@ -1351,7 +1291,6 @@ func tree_update(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
         node.w += win
         // Update the node children AMAF stats with moves we made
         // with their color
-        // amaf_map_value = 1 if node.pos.n % 2 == 0 else -1
         amaf_map_value := 1
         if node.pos.n % 2 != 0 {
             amaf_map_value = -1
@@ -1365,7 +1304,6 @@ func tree_update(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
                     if disp {
                         fmt.Fprintln(os.Stderr, "  AMAF updating", str_coord(child.pos.last), score > 0)
                     }
-                    // child.aw += score > 0
                     win = 0
                     if score > 0 { // reversed perspective
                         win = 1
@@ -1379,11 +1317,7 @@ func tree_update(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
     }
 }
 
-// In original Python (not used in the Go translation)
-// worker_pool = None
-
 // Perform MCTS search from a given position for a given #iterations
-// def tree_search(tree, n, owner_map, disp=False):
 func tree_search(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNode {
     // Initialize root node
     if len(tree.children) == 0 {
@@ -1405,10 +1339,6 @@ func tree_search(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNod
     if disp { // set to 1 when debugging
         n_workers = 1
     }
-
-    // global worker_pool
-    // if worker_pool is None:
-    //   worker_pool = Pool(processes=n_workers)
 
     type Job struct {
         nodes []*TreeNode
@@ -1447,7 +1377,6 @@ func tree_search(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNod
             }
 
             // Issue an mcplayout job to the worker pool
-            // nodes, amaf_map = outgoing.pop()
             dispatch := outgoing[len(outgoing)-1]
             outgoing = outgoing[:len(outgoing)-1]
             jobnum := i
@@ -1513,7 +1442,6 @@ func tree_search(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNod
 // print visualization of the given board position, optionally also
 // including an owner map statistic (probability of that area of board
 // eventually becoming black/white)
-// def print_pos(pos, f=sys.stderr, owner_map=None):
 func print_pos(pos Position, f *os.File, owner_map []float64) {
     var Xcap, Ocap int
     var board []byte
@@ -1594,7 +1522,6 @@ func Best_Nodes(nodes []*TreeNode) []*TreeNode {
 }
 
 // print this node and all its children with v >= thres.
-// def dump_subtree(node, thres=N_SIMS/50, indent=0, f=sys.stderr, recurse=True):
 func dump_subtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
     var float_val float64
     if node.av > 0 {
@@ -1617,7 +1544,6 @@ func dump_subtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
     }
 }
 
-// def print_tree_summary(tree, sims, f=sys.stderr):
 func print_tree_summary(tree *TreeNode, sims int, f *os.File) {
     var exists bool
     var best_nodes []*TreeNode
@@ -1692,7 +1618,6 @@ func mcbenchmark(n int) float64 {
 }
 
 // A simple minimalistic text mode UI.
-// def game_io(computer_black=False)
 func game_io(computer_black bool) {
     reader := bufio.NewReader(os.Stdin)
     tree := NewTreeNode(empty_position())
@@ -1702,7 +1627,6 @@ func game_io(computer_black bool) {
         if !(tree.pos.n == 0 && computer_black) {
             print_pos(tree.pos, os.Stdout, owner_map)
 
-            // sc = raw_input("Your move: ")
             fmt.Print("Your move: ")
             sc, _ := reader.ReadString('\n')
             sc = strings.TrimRight(sc, " \n")
@@ -1715,7 +1639,6 @@ func game_io(computer_black bool) {
                 }
 
                 // Find the next node in the game tree and proceed there
-                // nodes = filter(lambda n: n.pos.last == c, tree.children)
                 nodes := []*TreeNode{}
                 for _, node := range(tree.children) {
                     if node.pos.last == c {
@@ -1741,7 +1664,6 @@ func game_io(computer_black bool) {
         }
 
         owner_map = make([]float64, W*W)
-        // tree = tree_search(tree, N_SIMS, owner_map)
         tree = tree_search(tree, N_SIMS, owner_map, false)
         if tree.pos.last == PASS && tree.pos.last2 == PASS {
             score := tree.pos.score(owner_map)
@@ -1797,11 +1719,6 @@ func gtp_io()  {
             tree = NewTreeNode(empty_position())
             tree.expand()
         } else if command[0] == "komi" {
-            // XXX: can we do this nicer?!
-            // Python version:
-            // tree.pos = Position(board=tree.pos.board, cap=(tree.pos.cap[0], tree.pos.cap[1]),
-            //                     n=tree.pos.n, ko=tree.pos.ko, last=tree.pos.last, last2=tree.pos.last2,
-            //                     komi=float(command[1]))
             komi, err := strconv.ParseFloat(command[1], 64)
             if err == nil {
                 tree.pos.komi = komi
@@ -1810,11 +1727,6 @@ func gtp_io()  {
             c := parse_coord(command[2])
             if c >= 0 {
                 // Find the next node in the game tree and proceed there
-                // if tree.children is not None and filter(lambda n: n.pos.last == c, tree.children):
-                //     tree = filter(lambda n: n.pos.last == c, tree.children)[0]
-                // else:
-                //     # Several play commands in row, eye-filling move, etc.
-                //    tree = TreeNode(pos=tree.pos.move(c))
                 nodes := []*TreeNode{}
                 if len(tree.children) > 0 {
                     for _, node := range(tree.children) {
