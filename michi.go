@@ -25,21 +25,25 @@ import (
 // implementation easier).  Coordinates are just indices in this string.
 // You can simply print(board) when debugging.
 const (
-    N = 13
-    W = N + 2
-)
-var empty = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
-            bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
-            bytes.Repeat([]byte{' '}, N+2)...)
-const (
-    colstr = "ABCDEFGHJKLMNOPQRST"
+    N = 13      // boardsize
+    W = N + 2   // arraysize including buffer for board edge
+    colstr = "ABCDEFGHJKLMNOPQRST" // labels for columns
     MAX_GAME_LEN = N * N * 3
+)
+
+// empty is a byte slice representing an empty board
+var empty = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
+                bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
+                bytes.Repeat([]byte{' '}, N+2)...)
+
+const (
     PASS = -1346458457  // 'P','A','S','S' 0x50415353
     NONE = -1313820229  // 'N','O','N','E' 0x4e4f4e45
 )
 
+// constants related to the operation of the MCTS move selection
 const (
-    N_SIMS = 1400
+    N_SIMS = 1400 // number of playouts for Monte-Carlo Search
     RAVE_EQUIV = 3500
     EXPAND_VISITS = 8
     PRIOR_EVEN = 10  // should be even number; 0.5 prior
@@ -48,17 +52,8 @@ const (
     PRIOR_CAPTURE_MANY = 30
     PRIOR_PAT3 = 10
     PRIOR_LARGEPATTERN = 100  // most moves have relatively small probability
-)
-var PRIOR_CFG = [...]int{24, 22, 8}  // priors for moves in cfg dist. 1, 2, 3
-const (
     PRIOR_EMPTYAREA = 10
     REPORT_PERIOD = 200
-)
-var PROB_HEURISTIC = map[string]float64{
-    "capture": 0.9,
-    "pat3": 0.95,
-    }  // probability of heuristic suggestions being taken in playout
-const(
     PROB_SSAREJECT = 0.9  // probability of rejecting suggested self-atari in playout
     PROB_RSAREJECT = 0.5  // probability of rejecting random self-atari in playout; this is lower than above to allow nakade
     RESIGN_THRES = 0.2
@@ -66,7 +61,22 @@ const(
     FASTPLAY5_THRES = 0.95  // if at 5% playouts winrate is >this, stop reading
 )
 
-var pat3src = [...][][]byte{  // 3x3 playout patterns; X,O are colors, x,o are their inverses
+var PRIOR_CFG = [...]int{24, 22, 8}  // priors for moves in cfg dist. 1, 2, 3
+
+// probability of heuristic suggestions being taken in playout
+var PROB_HEURISTIC = map[string]float64{
+    "capture": 0.9,
+    "pat3": 0.95,
+    }
+
+// filenames for the large patterns from the Pachi Go engine
+const (
+    spat_patterndict_file = "patterns.spat"
+    large_patterns_file = "patterns.prob"
+)
+
+// 3x3 playout patterns; X,O are colors, x,o are their inverses
+var pat3src = [...][][]byte{
         {{'X','O','X'},  // hane pattern - enclosing hane
          {'.','.','.'},
          {'?','?','?'}},
@@ -127,10 +137,6 @@ var pat_gridcular_seq = [][][]int{  // Sequence of coordinate offsets of progres
         {{1,6}, {-1,6}, {1,-6}, {-1,-6}, {3,5},  {-3,5},  {3,-5}, {-3,-5}, {5,3},  {-5,3},  {5,-3}, {-5,-3}, {6,1},  {-6,1},  {6,-1}, {-6,-1}, },
         {{0,7}, {0,-7}, {2,6},  {-2,6},  {2,-6}, {-2,-6}, {4,5},  {-4,5},  {4,-5}, {-4,-5}, {5,4},  {-5,4},  {5,-4}, {-5,-4}, {6,2},  {-6,2}, {6,-2}, {-6,-2}, {7,0}, {-7,0}, },
 }
-const (
-    spat_patterndict_file = "patterns.spat"
-    large_patterns_file = "patterns.prob"
-)
 
 
 //######################
@@ -217,14 +223,14 @@ func SwapCase(str []byte) []byte {
 }
 
 // shuffle slice elements
-func ShuffleInt(a []int) {
+func shuffleInt(a []int) {
     for i := len(a)-1; i > 0; i-- {
         j := mt.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
 
-func ShuffleTree(a []*TreeNode) {
+func shuffleTree(a []*TreeNode) {
     for i := len(a)-1; i > 0; i-- {
         j := mt.Intn(i+1)
         a[i], a[j] = a[j], a[i]
@@ -247,7 +253,7 @@ func patternInSet(strSlice map[string]struct{}, strTest []byte) bool {
 }
 
 // test for edge of board
-func IsSpace(b byte) bool {
+func isSpace(b byte) bool {
     return bytes.Contains([]byte{' ','\n'}, []byte{b})
 }
 
@@ -258,7 +264,7 @@ func IsSpace(b byte) bool {
 func is_eyeish(board []byte, c int) byte {
     var eyecolor, othercolor byte
     for _, d := range neighbors(c) {
-        if IsSpace(board[d]) {
+        if isSpace(board[d]) {
             continue
         }
         if board[d] == '.' {
@@ -288,7 +294,7 @@ func is_eye(board []byte, c int) byte {
     false_count := 0
     at_edge := false
     for _, d := range diag_neighbors(c) {
-        if IsSpace(board[d]) {
+        if isSpace(board[d]) {
             at_edge = true
         } else {
             if board[d] == falsecolor {
@@ -306,6 +312,10 @@ func is_eye(board []byte, c int) byte {
 }
 
 // Implementation of simple Chinese Go rules
+
+// Position holds the current state of a the game including the stones on the
+// board, the captured stones, the current Ko state, the last 2 moves, and the
+// komi used.
 type Position struct {
     board []byte // string representation of board state
     cap []int    // holds total captured stones for each player
@@ -433,7 +443,7 @@ func (p Position) last_moves_neighbors() []int {
             continue
         }
         dlist = append([]int{c}, append(neighbors(c), diag_neighbors(c)...)...)
-        ShuffleInt(dlist)
+        shuffleInt(dlist)
         for _, d := range dlist {
             if intInSlice(clist, d) {
                 continue
@@ -501,7 +511,7 @@ func (p Position) score(owner_map []float64) float64 {
 func empty_position() Position {
     var p Position
 
-    p.board = empty
+    p.board = empty // XXX: verify that this doesn't lead to modification of empty
     p.cap = []int{0, 0}
     p.n = 0
     p.ko = NONE
@@ -637,7 +647,7 @@ func cfg_distance(board []byte, c int) []int {
     for len(fringe) > 0 {
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
         for _, d := range(neighbors(c)) {
-            if IsSpace(board[d]) ||
+            if isSpace(board[d]) ||
                (0 <= cfg_map[d] && cfg_map[d] <= cfg_map[c]) {
                 continue
             }
@@ -761,7 +771,7 @@ func pat3set_func() map[string]struct{} {
     }
     return m
 }
-var pat3set = pat3set_func()
+var pat3set = pat3set_func()    // XXX: investigate moving this to top of main()
 
 // return a string containing the 9 points forming 3x3 square around
 //  certain move candidate
@@ -778,6 +788,7 @@ func neighborhood_33(board []byte, c int) []byte {
 // https://github.com/pasky/pachi/blob/master/tools/pattern_spatial_show.pl
 // and try e.g. ./pattern_spatial_show.pl 71
 
+// XXX: investigate moving this to top of main()
 var spat_patterndict = make(map[uint64]int) // hash(neighborhood_gridcular()) -> spatial id
 
 // load dictionary of positions, translating them to numeric ids
@@ -796,6 +807,7 @@ func load_spat_patterndict(f *os.File) {
     }
 }
 
+// XXX: investigate moving this to top of main()
 var large_patterns = make(map[int]float64) // spatial id -> probability
 
 // dictionary of numeric pattern ids, translating them to probabilities
@@ -918,7 +930,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
             for _, c := range(heuristic_set) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
                     _, ds := fix_atari(pos, c, false, true, !(expensive_ok))
-                    ShuffleInt(ds)
+                    shuffleInt(ds)
                     for _, d := range(ds) {
                         if !(intInSlice(already_suggested, d)) {
                             r.intResult = d
@@ -1233,7 +1245,7 @@ func tree_descend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
                 dump_subtree(child, N_SIMS/50, 0, os.Stderr, false)
             }
         }
-        ShuffleTree(children) // randomize the max in case of equal urgency
+        shuffleTree(children) // randomize the max in case of equal urgency
 
         // find most urgent child by node.rave_urgency()
         node := children[0]
@@ -1466,7 +1478,7 @@ func print_pos(pos Position, f *os.File, owner_map []float64) {
     if len(owner_map) > 0 {
         pretty_ownermap := ""
         for c := 0; c < W*W-1; c++ {
-            if IsSpace(board[c]) {
+            if isSpace(board[c]) {
                 pretty_ownermap += string(board[c:c+1])
             } else if owner_map[c] > 0.6 {
                 pretty_ownermap += "X"
