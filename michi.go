@@ -1842,7 +1842,7 @@ func main() {
     }
 
     mt = rand.New(mt64.New())
-	mt.Seed(time.Now().UTC().UnixNano())
+	mt.Seed(time.Now().UnixNano())
 
     if len(os.Args) < 2 {
         // Default action
