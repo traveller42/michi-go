@@ -1914,7 +1914,7 @@ func main() {
         fmt.Fprintln(os.Stderr, "Done.")
     }
 
-    rand.Seed(time.Now().UTC().UnixNano())
+    rand.Seed(time.Now().UnixNano())
 
     if len(os.Args) < 2 {
         // Default action
