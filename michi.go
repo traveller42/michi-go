@@ -1004,6 +1004,7 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
         // Try *all* available moves, but starting from a random point
         // (in other words, suggest a random move)
         moves_done := make(chan struct{})
+        defer close(moves_done)
         x, y := rand.Intn(N-1)+1, rand.Intn(N-1)+1
         for c := range(pos.moves(y*W + x, moves_done)) {
             r.intResult = c
@@ -1011,10 +1012,10 @@ func gen_playout_moves(pos Position, heuristic_set []int, probs map[string]float
             select {
                 case ch <- r:
                 case <-done:
-                    break
+                    return
             }
         }
-        close(moves_done)
+        // close(moves_done) defer'd
         // close(ch) defer'd at start of routine
     }()
     return ch
