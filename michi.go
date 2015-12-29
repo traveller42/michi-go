@@ -31,8 +31,8 @@ const (
     MAX_GAME_LEN = N * N * 3
 )
 
-// empty is a byte slice representing an empty board
-var empty = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
+// emptyBoard is a byte slice representing an empty board
+var emptyBoard = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
                 bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
                 bytes.Repeat([]byte{' '}, N+2)...)
 
@@ -159,22 +159,22 @@ func boardPut(board []byte, c int, p byte) []byte {
 
 // replace continuous-color area starting at c with special color #
 func floodfill(board []byte, c int) []byte {
-    local_board := append([]byte{}, board...)
+    localBoard := append([]byte{}, board...)
 
     // XXX: Use bytearray to speed things up? (still needed in golang?)
-    p := local_board[c]
-    local_board = boardPut(local_board, c, '#')
+    p := localBoard[c]
+    localBoard = boardPut(localBoard, c, '#')
     fringe := []int{c}
     for len(fringe) > 0 {
         c, fringe = fringe[len(fringe)-1], fringe[:len(fringe)-1]
         for _, d := range neighbors(c) {
-            if local_board[d] == p {
-                local_board = boardPut(local_board, d, '#')
+            if localBoard[d] == p {
+                localBoard = boardPut(localBoard, d, '#')
                 fringe = append(fringe, d)
             }
         }
     }
-    return local_board
+    return localBoard
 }
 
 // test if point of color p is adjecent to color # anywhere
@@ -262,7 +262,7 @@ func isSpace(b byte) bool {
 // test if c is inside a single-color diamond and return the diamond
 // color or None; this could be an eye, but also a false one
 func isEyeish(board []byte, c int) byte {
-    var eyecolor, othercolor byte
+    var eyeColor, otherColor byte
     for _, d := range neighbors(c) {
         if isSpace(board[d]) {
             continue
@@ -270,45 +270,45 @@ func isEyeish(board []byte, c int) byte {
         if board[d] == '.' {
             return 0
         }
-        if eyecolor == 0 {
-            eyecolor = board[d]
-            othercolor = byte(swapCase(rune(eyecolor)))
+        if eyeColor == 0 {
+            eyeColor = board[d]
+            otherColor = byte(swapCase(rune(eyeColor)))
         } else {
-            if board[d] == othercolor {
+            if board[d] == otherColor {
                 return 0
             }
         }
     }
-    return eyecolor
+    return eyeColor
 }
 
 // test if c is an eye and return its color or None
 func isEye(board []byte, c int) byte {
-    eyecolor := isEyeish(board, c)
-    if eyecolor == 0 {
+    eyeColor := isEyeish(board, c)
+    if eyeColor == 0 {
         return 0
     }
 
     // Eye-like shape, but it could be a falsified eye
-    falsecolor := byte(swapCase(rune(eyecolor)))
-    false_count := 0
-    at_edge := false
+    falseColor := byte(swapCase(rune(eyeColor)))
+    falseCount := 0
+    atEdge := false
     for _, d := range diagonalNeighbors(c) {
         if isSpace(board[d]) {
-            at_edge = true
+            atEdge = true
         } else {
-            if board[d] == falsecolor {
-                false_count += 1
+            if board[d] == falseColor {
+                falseCount += 1
             }
         }
     }
-    if at_edge {
-        false_count += 1
+    if atEdge {
+        falseCount += 1
     }
-    if false_count >= 2 {
+    if falseCount >= 2 {
         return 0
     }
-    return eyecolor
+    return eyeColor
 }
 
 // Implementation of simple Chinese Go rules
@@ -333,13 +333,13 @@ func (p Position) move(c int) (Position, string) {
         return p, "ko"
     }
     // Are we trying to play in enemy's eye?
-    in_enemy_eye := isEyeish(p.board, c) == 'x'
+    inEnemyEye := isEyeish(p.board, c) == 'x'
 
     board := append([]byte{}, p.board...)
     board = boardPut(board, c, 'X')
     // Test for captures, and track ko
     capX := p.cap[0]
-    singlecaps := []int{}
+    singleCaps := []int{}
     for _, d := range neighbors(c) {
         if board[d] != 'x' {
             continue
@@ -347,22 +347,22 @@ func (p Position) move(c int) (Position, string) {
         // XXX: The following is an extremely naive and SLOW approach
         // at things - to do it properly, we should maintain some per-group
         // data structures tracking liberties.
-        fboard := floodfill(board, d) // get a board with the adjacent group replaced by '#'
-        if contact(fboard, '.') != NONE {
+        fillBoard := floodfill(board, d) // get a board with the adjacent group replaced by '#'
+        if contact(fillBoard, '.') != NONE {
             continue  // some liberties left
         }
         // no liberties left for this group, remove the stones!
-        capcount := bytes.Count(fboard, []byte{'#'})
-        if capcount == 1 {
-            singlecaps = append(singlecaps, d)
+        captureCount := bytes.Count(fillBoard, []byte{'#'})
+        if captureCount == 1 {
+            singleCaps = append(singleCaps, d)
         }
-        capX += capcount
-        board = bytes.Replace(fboard, []byte{'#'}, []byte{'.'}, -1) // capture the group
+        capX += captureCount
+        board = bytes.Replace(fillBoard, []byte{'#'}, []byte{'.'}, -1) // capture the group
     }
     // set ko
     ko := NONE
-    if in_enemy_eye && len(singlecaps) == 1 {
-        ko = singlecaps[0]
+    if inEnemyEye && len(singleCaps) == 1 {
+        ko = singleCaps[0]
     }
     // Test for suicide
     if contact(floodfill(board, c), '.') == NONE {
@@ -436,22 +436,22 @@ func (p Position) moves(i0 int, done chan struct{}) chan int {
 // surrounding the last two moves (but with the last move having
 // priority)
 func (p Position) lastMovesNeighbors() []int {
-    clist := []int{}
-    dlist := []int{}
+    cList := []int{}
+    dList := []int{}
     for _, c := range []int{p.last, p.last2} {
         if c < 0 { // if there was no last move, or pass
             continue
         }
-        dlist = append([]int{c}, append(neighbors(c), diagonalNeighbors(c)...)...)
-        shuffleInt(dlist)
-        for _, d := range dlist {
-            if intInSlice(clist, d) {
+        dList = append([]int{c}, append(neighbors(c), diagonalNeighbors(c)...)...)
+        shuffleInt(dList)
+        for _, d := range dList {
+            if intInSlice(cList, d) {
                 continue
             }
-            clist = append(clist, d)
+            cList = append(cList, d)
         }
     }
-    return clist
+    return cList
 }
 
 // compute score for to-play player; this assumes a final position
@@ -460,7 +460,7 @@ func (p Position) lastMovesNeighbors() []int {
 // (+1 black, -1 white)
 func (p Position) score(owner_map []float64) float64 {
     board := append([]byte{}, p.board...)
-    var fboard []byte
+    var fillBoard []byte
     var touches_X, touches_x bool
     var komi float64
     var n float64
@@ -471,16 +471,16 @@ func (p Position) score(owner_map []float64) float64 {
             break
         }
         i += index + 1
-        fboard = floodfill(board, i)
-        // fboard is board with some continuous area of empty space replaced by #
-        touches_X = contact(fboard, 'X') != NONE
-        touches_x = contact(fboard, 'x') != NONE
+        fillBoard = floodfill(board, i)
+        // fillBoard is board with some continuous area of empty space replaced by #
+        touches_X = contact(fillBoard, 'X') != NONE
+        touches_x = contact(fillBoard, 'x') != NONE
         if touches_X && !touches_x {
-            board = bytes.Replace(fboard, []byte{'#'}, []byte{'X'}, -1)
+            board = bytes.Replace(fillBoard, []byte{'#'}, []byte{'X'}, -1)
         } else if touches_x && !touches_X {
-            board = bytes.Replace(fboard, []byte{'#'}, []byte{'x'}, -1)
+            board = bytes.Replace(fillBoard, []byte{'#'}, []byte{'x'}, -1)
         } else {
-            board = bytes.Replace(fboard, []byte{'#'}, []byte{':'}, -1) // seki, rare
+            board = bytes.Replace(fillBoard, []byte{'#'}, []byte{':'}, -1) // seki, rare
         }
     }
     // now that area is replaced either by X, x or :
@@ -511,7 +511,7 @@ func (p Position) score(owner_map []float64) float64 {
 func emptyPosition() Position {
     var p Position
 
-    p.board = empty // XXX: verify that this doesn't lead to modification of empty
+    p.board = emptyBoard // XXX: verify that this doesn't lead to modification of emptyBoard
     p.cap = []int{0, 0}
     p.n = 0
     p.ko = NONE
@@ -536,54 +536,54 @@ func emptyPosition() Position {
 // (Note that (False, [...]) is possible in case the group can be captured
 // in a ladder - it is not in atari but some capture attack/defense moves
 // are available.)
-// singlept_ok means that we will not try to save one-point groups;
-// twolib_test means that we will check for 2-liberty groups which are
+// singlePointOK means that we will not try to save one-point groups;
+// twoLibertyTest means that we will check for 2-liberty groups which are
 // threatened by a ladder
-// twolib_edgeonly means that we will check the 2-liberty groups only
+// twoLibertyTestAtEdgeOnly means that we will check the 2-liberty groups only
 // at the board edge, allowing check of the most common short ladders
 // even in the playouts
-func fixAtari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bool) (bool, []int) {
+func fixAtari(pos Position, c int, singlePointOK, twoLibertyTest, twoLibertyTestAtEdgeOnly bool) (bool, []int) {
     // check if a capturable ladder is being pulled out at c and return
     // a move that continues it in that case; expects its two liberties as
     // l1, l2  (in fact, this is a general 2-lib capture exhaustive solver)
-    read_ladder_attack := func(pos Position, c, l1, l2 int) int {
+    readLadderAttack := func(pos Position, c, l1, l2 int) int {
         for _, l := range([]int{l1, l2}) {
             pos_l, pos_err := pos.move(l)
             if pos_err != "ok" {
                 continue
             }
-            // fixAtari() will recursively call read_ladder_attack() back;
+            // fixAtari() will recursively call readLadderAttack() back;
             // however, ignore 2lib groups as we don't have time to chase them
-            is_atari, atari_escape := fixAtari(pos_l, c, false, false, false)
-            if is_atari && len(atari_escape) > 0 {
+            isAtari, atariEscape := fixAtari(pos_l, c, false, false, false)
+            if isAtari && len(atariEscape) > 0 {
                 return l
             }
         }
         return NONE
     }
 
-    fboard := floodfill(pos.board, c)
-    group_size := bytes.Count(fboard, []byte{'#'})
-    if singlept_ok && group_size == 1 {
+    fillBoard := floodfill(pos.board, c)
+    groupSize := bytes.Count(fillBoard, []byte{'#'})
+    if singlePointOK && groupSize == 1 {
         return false, []int{}
     }
     // Find a liberty
-    l := contact(fboard, '.')
+    l := contact(fillBoard, '.')
     // Ok, any other liberty?
-    fboard = boardPut(fboard, l, 'L')
-    l2 := contact(fboard, '.')
+    fillBoard = boardPut(fillBoard, l, 'L')
+    l2 := contact(fillBoard, '.')
     if l2 != NONE {
         // At least two liberty group...
-        if twolib_test && group_size > 1 &&
-           (!twolib_edgeonly || lineHeight(l) == 0 && lineHeight(l2) == 0) &&
-           contact(boardPut(fboard, l2, 'L'), '.') == NONE {
+        if twoLibertyTest && groupSize > 1 &&
+           (!twoLibertyTestAtEdgeOnly || lineHeight(l) == 0 && lineHeight(l2) == 0) &&
+           contact(boardPut(fillBoard, l2, 'L'), '.') == NONE {
             // Exactly two liberty group with more than one stone.  Check
             // that it cannot be caught in a working ladder; if it can,
             // that's as good as in atari, a capture threat.
             // (Almost - N/A for countercaptures.)
-            ladder_attack := read_ladder_attack(pos, c, l, l2)
-            if ladder_attack >= 0 {
-                return false, []int{ladder_attack}
+            ladderAttack := readLadderAttack(pos, c, l, l2)
+            if ladderAttack >= 0 {
+                return false, []int{ladderAttack}
             }
         }
         return false, []int{}
@@ -598,18 +598,18 @@ func fixAtari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly boo
 
     // Before thinking about defense, what about counter-capturing
     // a neighboring group?
-    ccboard := fboard
+    counterCaptureBoard := fillBoard
     for {
-        othergroup := contact(ccboard, 'x')
-        if othergroup == NONE {
+        otherGroup := contact(counterCaptureBoard, 'x')
+        if otherGroup == NONE {
             break
         }
-        a, ccls := fixAtari(pos, othergroup, false, false, false)
+        a, ccls := fixAtari(pos, otherGroup, false, false, false)
         if a && len(ccls) > 0 {
             solutions = append(solutions, ccls...)
         }
         // XXX: floodfill is better for big groups
-        ccboard = boardPut(ccboard, othergroup, '%')
+        counterCaptureBoard = boardPut(counterCaptureBoard, otherGroup, '%')
     }
 
     // We are escaping.  Will playing our last liberty gain
@@ -618,14 +618,14 @@ func fixAtari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly boo
     if escerr != "ok" {
         return true, solutions // oops, suicidal move
     }
-    fboard = floodfill(escpos.board, l)
-    l_new := contact(fboard, '.')
-    fboard = boardPut(fboard, l_new, 'L')
-    l_new_2 := contact(fboard, '.')
+    fillBoard = floodfill(escpos.board, l)
+    l_new := contact(fillBoard, '.')
+    fillBoard = boardPut(fillBoard, l_new, 'L')
+    l_new_2 := contact(fillBoard, '.')
     if l_new_2 != NONE {
         if len(solutions) > 0 ||
-           !(contact(boardPut(fboard, l_new_2, 'L'), '.') == NONE &&
-             read_ladder_attack(escpos, l, l_new, l_new_2) != NONE) {
+           !(contact(boardPut(fillBoard, l_new_2, 'L'), '.') == NONE &&
+             readLadderAttack(escpos, l, l_new, l_new_2) != NONE) {
              solutions = append(solutions, l)
          }
     }
@@ -776,10 +776,10 @@ var pat3set = pat3set_func()    // XXX: investigate moving this to top of main()
 // return a string containing the 9 points forming 3x3 square around
 //  certain move candidate
 func neighborhood3x3(board []byte, c int) []byte {
-    local_board := append([]byte{}, board[c-W-1:c-W+2]...)
-    local_board = append(local_board, board[c-1:c+2]...)
-    local_board = append(local_board, board[c+W-1:c+W+2]...)
-    return bytes.Replace(local_board, []byte{'\n'}, []byte{' '}, -1)
+    localBoard := append([]byte{}, board[c-W-1:c-W+2]...)
+    localBoard = append(localBoard, board[c-1:c+2]...)
+    localBoard = append(localBoard, board[c+W-1:c+W+2]...)
+    return bytes.Replace(localBoard, []byte{'\n'}, []byte{' '}, -1)
 }
 
 // large-scale pattern routines (those patterns living in patterns.{spat,prob} files)
@@ -789,7 +789,7 @@ func neighborhood3x3(board []byte, c int) []byte {
 // and try e.g. ./pattern_spatial_show.pl 71
 
 // XXX: investigate moving this to top of main()
-var spat_patterndict = make(map[uint64]int) // hash(neighborhoodGridcular()) -> spatial id
+var spatPatternDict = make(map[uint64]int) // hash(neighborhoodGridcular()) -> spatial id
 
 // load dictionary of positions, translating them to numeric ids
 func loadSpatPatternDict(f *os.File) {
@@ -802,13 +802,13 @@ func loadSpatPatternDict(f *os.File) {
         }
         neighborhood := bytes.Replace(bytes.Replace(bytes.Split(line, []byte{' '})[2], []byte{'#'}, []byte{' '}, -1), []byte{'O'}, []byte{'x'}, -1)
         if id, err := strconv.ParseInt(string(bytes.Split(line, []byte{' '})[0]), 10, 0); err == nil {
-            spat_patterndict[HashByteSlice(neighborhood)] = int(id)
+            spatPatternDict[HashByteSlice(neighborhood)] = int(id)
         }
     }
 }
 
 // XXX: investigate moving this to top of main()
-var large_patterns = make(map[int]float64) // spatial id -> probability
+var largePatterns = make(map[int]float64) // spatial id -> probability
 
 // dictionary of numeric pattern ids, translating them to probabilities
 // that a move matching such move will be played when it is available
@@ -821,7 +821,7 @@ func loadLargePatterns(f *os.File) {
         if p, err := strconv.ParseFloat(strings.Split(line, " ")[0],64); err == nil {
             if m := re.FindStringSubmatch(line); m != nil {
                 if s, err := strconv.ParseInt(m[1], 10, 0); err == nil {
-                    large_patterns[int(s)] = p
+                    largePatterns[int(s)] = p
                 }
             }
         }
@@ -882,25 +882,25 @@ func neighborhoodGridcular(board []byte, c int, done chan struct{}) chan []byte 
 // we consider the largest one.
 func largePatternProbability(board []byte, c int) float64 {
     probability := float64(NONE)
-    matched_len := 0
-    non_matched_len := 0
+    matchedLength := 0
+    nonMatchedLength := 0
     done := make(chan struct{})
     for n := range(neighborhoodGridcular(board, c, done)) {
-        sp_i, good_sp_i := spat_patterndict[HashByteSlice(n)]
+        sp_i, good_sp_i := spatPatternDict[HashByteSlice(n)]
         if good_sp_i {
-            prob, good_prob := large_patterns[sp_i]
+            prob, good_prob := largePatterns[sp_i]
             if good_prob {
                 probability = prob
-                matched_len = len(n)
+                matchedLength = len(n)
                 continue
             }
         }
-        if matched_len < non_matched_len && non_matched_len < len(n) {
+        if matchedLength < nonMatchedLength && nonMatchedLength < len(n) {
             // stop when we did not match any pattern with a certain
             // diameter - it ain't going to get any better!
             break
         }
-        non_matched_len = len(n)
+        nonMatchedLength = len(n)
     }
     close(done)
     return probability
@@ -912,13 +912,13 @@ func largePatternProbability(board []byte, c int) float64 {
 // Yield candidate next moves in the order of preference; this is one
 // of the main places where heuristics dwell, try adding more!
 //
-// heuristic_set is the set of coordinates considered for applying heuristics;
+// heuristicSet is the set of coordinates considered for applying heuristics;
 // this is the immediate neighborhood of last two moves in the playout, but
 // the whole board while prioring the tree.
 type Result struct { intResult int
                      strResult string}
 
-func generatePlayoutMoves(pos Position, heuristic_set []int, probs map[string]float64, expensive_ok bool, done chan struct{}) chan Result {
+func generatePlayoutMoves(pos Position, heuristicSet []int, probs map[string]float64, expensiveOK bool, done chan struct{}) chan Result {
     ch := make(chan Result)
     var r Result
 
@@ -926,13 +926,13 @@ func generatePlayoutMoves(pos Position, heuristic_set []int, probs map[string]fl
         defer close(ch)
         // Check whether any local group is in atari and fill that liberty
         if mt.Float64() <= probs["capture"] {
-            already_suggested := []int{}
-            for _, c := range(heuristic_set) {
+            alreadySuggested := []int{}
+            for _, c := range(heuristicSet) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
-                    _, ds := fixAtari(pos, c, false, true, !(expensive_ok))
+                    _, ds := fixAtari(pos, c, false, true, !(expensiveOK))
                     shuffleInt(ds)
                     for _, d := range(ds) {
-                        if !(intInSlice(already_suggested, d)) {
+                        if !(intInSlice(alreadySuggested, d)) {
                             r.intResult = d
                             r.strResult = "capture " + strconv.FormatInt(int64(c), 10)
                             select {
@@ -940,7 +940,7 @@ func generatePlayoutMoves(pos Position, heuristic_set []int, probs map[string]fl
                                 case <-done:
                                     return
                             }
-                            already_suggested = append(already_suggested, d)
+                            alreadySuggested = append(alreadySuggested, d)
                         }
                     }
                 }
@@ -949,9 +949,9 @@ func generatePlayoutMoves(pos Position, heuristic_set []int, probs map[string]fl
 
         // Try to apply a 3x3 pattern on the local neighborhood
         if mt.Float64() <= probs["pat3"] {
-            already_suggested := []int{}
-            for _, c := range(heuristic_set) {
-                if pos.board[c] == '.' && !(intInSlice(already_suggested, c)) && patternInSet(pat3set, neighborhood3x3(pos.board, c)) {
+            alreadySuggested := []int{}
+            for _, c := range(heuristicSet) {
+                if pos.board[c] == '.' && !(intInSlice(alreadySuggested, c)) && patternInSet(pat3set, neighborhood3x3(pos.board, c)) {
                     r.intResult = c
                     r.strResult = "pat3"
                     select {
@@ -959,7 +959,7 @@ func generatePlayoutMoves(pos Position, heuristic_set []int, probs map[string]fl
                         case <-done:
                             return
                     }
-                    already_suggested = append(already_suggested, c)
+                    alreadySuggested = append(alreadySuggested, c)
                 }
             }
         }
@@ -1024,8 +1024,8 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
                 prob_reject = PROB_SSAREJECT
             }
             if mt.Float64() <= prob_reject {
-                in_atari, _ := fixAtari(pos2, c, true, true, true)
-                if in_atari {
+                inAtari, _ := fixAtari(pos2, c, true, true, true)
+                if inAtari {
                     if disp {
                         fmt.Fprintln(os.Stderr, "rejecting self-atari move", stringCoordinates(c))
                     }
@@ -1105,17 +1105,17 @@ func (tn *TreeNode) expand() {
         cfg_map = append(cfg_map, cfgDistance(tn.pos.board, tn.pos.last)...)
     }
     tn.children = []*TreeNode{}
-    childset := map[int]*TreeNode{}
+    childSet := map[int]*TreeNode{}
     // Use playout generator to generate children and initialize them
     // with some priors to bias search towards more sensible moves.
     // Note that there can be many ways to incorporate the priors in
     // next node selection (progressive bias, progressive widening, ...).
-    seed_set := []int{}
+    seedSet := []int{}
     for i := N; i < (N+1)*W; i++ {
-        seed_set = append(seed_set, i)
+        seedSet = append(seedSet, i)
     }
     done := make(chan struct{})
-    for r:= range(generatePlayoutMoves(tn.pos, seed_set, map[string]float64{"capture": 1, "pat3": 1}, true, done)) {
+    for r:= range(generatePlayoutMoves(tn.pos, seedSet, map[string]float64{"capture": 1, "pat3": 1}, true, done)) {
         c := r.intResult
         kind := r.strResult
         pos2, err := tn.pos.move(c)
@@ -1124,11 +1124,11 @@ func (tn *TreeNode) expand() {
         }
         // generatePlayoutMoves() will generate duplicate suggestions
         // if a move is yielded by multiple heuristics
-        node, ok := childset[pos2.last]
+        node, ok := childSet[pos2.last]
         if !ok {
             node = NewTreeNode(pos2)
             tn.children = append(tn.children, node)
-            childset[pos2.last] = node
+            childSet[pos2.last] = node
         }
 
         if strings.HasPrefix(kind, "capture") {
@@ -1172,17 +1172,17 @@ func (tn *TreeNode) expand() {
             }
         }
 
-        in_atari, _ := fixAtari(node.pos, c, true, true, false)
-        if in_atari {
+        inAtari, _ := fixAtari(node.pos, c, true, true, false)
+        if inAtari {
             node.pv += PRIOR_SELFATARI
             node.pw += 0 // negative prior
         }
 
-        patternprob := largePatternProbability(tn.pos.board, c)
-        if patternprob > 0.001 {
-            pattern_prior := math.Sqrt(patternprob) // tone up
-            node.pv += int(pattern_prior * PRIOR_LARGEPATTERN)
-            node.pw += int(pattern_prior * PRIOR_LARGEPATTERN)
+        patternProbability := largePatternProbability(tn.pos.board, c)
+        if patternProbability > 0.001 {
+            patternPrior := math.Sqrt(patternProbability) // tone up
+            node.pv += int(patternPrior * PRIOR_LARGEPATTERN)
+            node.pw += int(patternPrior * PRIOR_LARGEPATTERN)
         }
     }
 
@@ -1199,9 +1199,9 @@ func (tn *TreeNode) raveUrgency() float64 {
     if tn.av == 0 {
         return expectation
     }
-    rave_expectation := float64(tn.aw) / float64(tn.av)
+    raveExpectation := float64(tn.aw) / float64(tn.av)
     beta := float64(tn.av) / (float64(tn.av + v) + float64(v) * float64(tn.av) / RAVE_EQUIV)
-    return beta * rave_expectation + (1-beta) * expectation
+    return beta * raveExpectation + (1-beta) * expectation
 }
 
 func (tn *TreeNode) winrate() float64 {
@@ -1214,7 +1214,7 @@ func (tn *TreeNode) winrate() float64 {
 
 // best move is the most simulated one
 func (tn *TreeNode) bestMove() (*TreeNode, bool) {
-    var max_node *TreeNode
+    var maxNode *TreeNode
     if len(tn.children) == 0 {
         return nil, false
     } else {
@@ -1222,11 +1222,11 @@ func (tn *TreeNode) bestMove() (*TreeNode, bool) {
         for _, node := range(tn.children) {
             if node.v > max_v {
                 max_v = node.v
-                max_node = node
+                maxNode = node
             }
         }
     }
-    return max_node, true
+    return maxNode, true
 }
 
 // Descend through the tree to a leaf
@@ -1250,15 +1250,15 @@ func treeDescend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
 
         // find most urgent child by node.raveUrgency()
         node := children[0]
-        max_rave := node.raveUrgency()
+        maxRave := node.raveUrgency()
         for i, c := range(children) {
             if i == 0 { // skip item 0 as we already have its data
                 continue
             }
-            test_rave := c.raveUrgency()
-            if test_rave > max_rave {
+            testRave := c.raveUrgency()
+            if testRave > maxRave {
                 node = c
-                max_rave = test_rave
+                maxRave = testRave
             }
         }
         nodes = append(nodes, node)
@@ -1289,11 +1289,11 @@ func treeDescend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
 
 // Store simulation result in the tree (@nodes is the tree path)
 func treeUpdate(nodes []*TreeNode, amaf_map []int, score float64, disp bool) {
-    local_nodes := nodes
-    for i, j := 0, len(local_nodes)-1; i < j; i, j = i+1, j-1 { // reverse the order
-        local_nodes[i], local_nodes[j] = local_nodes[j], local_nodes[i]
+    localNodes := nodes
+    for i, j := 0, len(localNodes)-1; i < j; i, j = i+1, j-1 { // reverse the order
+        localNodes[i], localNodes[j] = localNodes[j], localNodes[i]
     }
-    for _, node := range(local_nodes) {
+    for _, node := range(localNodes) {
         if disp {
             fmt.Fprintln(os.Stderr, "updating", stringCoordinates(node.pos.last), score < 0)
         }
@@ -1348,9 +1348,9 @@ func treeSearch(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNode
     // expand() in the tree descent phase may be quite expensive - we can tune
     // that tradeoff by adjusting the EXPAND_VISITS constant.)
 
-    n_workers := runtime.NumCPU()
+    numWorkers := runtime.NumCPU()
     if disp { // set to 1 when debugging
-        n_workers = 1
+        numWorkers = 1
     }
 
     type Job struct {
@@ -1380,9 +1380,9 @@ func treeSearch(tree *TreeNode, n int, owner_map []float64, disp bool) *TreeNode
             outgoing = append(outgoing, job)
         }
 
-        if len(ongoing) >= n_workers {
+        if len(ongoing) >= numWorkers {
             // Too many playouts running? Wait a bit...
-            time.Sleep(10 * time.Millisecond / time.Duration(n_workers))
+            time.Sleep(10 * time.Millisecond / time.Duration(numWorkers))
         } else {
             i += 1
             if i > 0 && i % REPORT_PERIOD == 0 {
@@ -1466,16 +1466,16 @@ func printPosition(pos Position, f *os.File, owner_map []float64) {
         Ocap, Xcap = pos.cap[0], pos.cap[1]
     }
     fmt.Fprintf(f, "Move: %-3d   Black: %d caps   White: %d caps   Komi: %.1f\n", pos.n, Xcap, Ocap, pos.komi)
-    pretty_board := strings.Join(strings.Split(string(board[:]), ""), " ")
+    prettyBoard := strings.Join(strings.Split(string(board[:]), ""), " ")
     if pos.last >= 0 {
-        pretty_board = pretty_board[:pos.last*2-1] + "(" + string(board[pos.last:pos.last+1]) + ")" + pretty_board[pos.last*2+2:]
+        prettyBoard = prettyBoard[:pos.last*2-1] + "(" + string(board[pos.last:pos.last+1]) + ")" + prettyBoard[pos.last*2+2:]
     }
     pb := []string{}
-    for i, row := range(strings.Split(pretty_board, "\n")[1:N+1]) {
+    for i, row := range(strings.Split(prettyBoard, "\n")[1:N+1]) {
         row = fmt.Sprintf(" %-02d%s", N-i, row[2:])
         pb = append(pb, row)
     }
-    pretty_board = strings.Join(pb, "\n")
+    prettyBoard = strings.Join(pb, "\n")
     if len(owner_map) > 0 {
         pretty_ownermap := ""
         for c := 0; c < W*W-1; c++ {
@@ -1499,9 +1499,9 @@ func printPosition(pos Position, f *os.File, owner_map []float64) {
             row := fmt.Sprintf("%s  %s", pb[i], orow[1:])
             pb2 = append(pb2, row)
         }
-        pretty_board = strings.Join(pb2, "\n")
+        prettyBoard = strings.Join(pb2, "\n")
     }
-    fmt.Fprintln(f, pretty_board)
+    fmt.Fprintln(f, prettyBoard)
     fmt.Fprintln(f, "    " + strings.Join(strings.Split(columnString[:N], ""), " "))
     fmt.Fprintln(f, "")
 }
@@ -1536,15 +1536,15 @@ func bestNodes(nodes []*TreeNode) []*TreeNode {
 
 // print this node and all its children with v >= thres.
 func dumpSubtree(node *TreeNode, thres, indent int, f *os.File, recurse bool) {
-    var float_val float64
+    var floatValue float64
     if node.av > 0 {
-        float_val = float64(node.aw)/float64(node.av)
+        floatValue = float64(node.aw)/float64(node.av)
     } else{
-        float_val = math.NaN()
+        floatValue = math.NaN()
     }
     fmt.Fprintf(f, "%s+- %s %.3f (%d/%d, prior %d/%d, rave %d/%d=%.3f, urgency %.3f)\n",
                 strings.Repeat(" ", indent), stringCoordinates(node.pos.last), node.winrate(),
-                node.w, node.v, node.pw, node.pv, node.aw, node.av, float_val,
+                node.w, node.v, node.pw, node.pv, node.aw, node.av, floatValue,
                 node.raveUrgency())
     if !recurse {
         return
@@ -1565,26 +1565,26 @@ func printTreeSummary(tree *TreeNode, sims int, f *os.File) {
     } else {
         best_nodes = bestNodes(tree.children)[:5]
     }
-    best_seq := []int{}
+    bestSequence := []int{}
     node := tree
     for {
-        best_seq = append(best_seq, node.pos.last)
+        bestSequence = append(bestSequence, node.pos.last)
         node, exists = node.bestMove()
         if !exists { // no children of current node
             break
         }
     }
-    seq_string := ""
-    if len(best_seq) < 6 {
-        for i, c := range(best_seq) {
+    sequenceString := ""
+    if len(bestSequence) < 6 {
+        for i, c := range(bestSequence) {
             if i == 0 {
                 continue
             }
-            seq_string += stringCoordinates(c) + " "
+            sequenceString += stringCoordinates(c) + " "
         }
     } else {
-        for _, c := range(best_seq[1:6]) {
-            seq_string += stringCoordinates(c) + " "
+        for _, c := range(bestSequence[1:6]) {
+            sequenceString += stringCoordinates(c) + " "
         }
     }
     best_nodes_string := ""
@@ -1593,7 +1593,7 @@ func printTreeSummary(tree *TreeNode, sims int, f *os.File) {
     }
     if len(best_nodes) > 0 {
             fmt.Fprintf(f, "[%4d] winrate %.3f | seq %s | can %s\n", sims, best_nodes[0].winrate(),
-                        seq_string, best_nodes_string)
+                        sequenceString, best_nodes_string)
         }
 }
 
@@ -1622,22 +1622,22 @@ func stringCoordinates(c int) string {
 
 // run n Monte-Carlo playouts from empty position, return avg. score
 func mcbenchmark(n int) float64 {
-    var sumscore float64
+    var scoreSum float64
     for i := 0; i < n; i++ {
         score, _, _ := mcplayout(emptyPosition(), make([]int, W*W), false)
-        sumscore += score
+        scoreSum += score
     }
-    return sumscore / float64(n)
+    return scoreSum / float64(n)
 }
 
 // A simple minimalistic text mode UI.
-func game_io(computer_black bool) {
+func gameIO(computerBlack bool) {
     reader := bufio.NewReader(os.Stdin)
     tree := NewTreeNode(emptyPosition())
     tree.expand()
     owner_map := make([]float64, W*W)
     for {
-        if !(tree.pos.n == 0 && computer_black) {
+        if !(tree.pos.n == 0 && computerBlack) {
             printPosition(tree.pos, os.Stdout, owner_map)
 
             fmt.Print("Your move: ")
@@ -1696,9 +1696,9 @@ func game_io(computer_black bool) {
 // GTP interface for our program.  We can play only on the board size
 // which is configured (N), and we ignore color information and assume
 // alternating play!
-func gtp_io()  {
-    gtp_in := bufio.NewScanner(os.Stdin)
-    known_commands := []string{"boardsize", "clear_board", "komi", "play",
+func gtpIO()  {
+    gtpIn := bufio.NewScanner(os.Stdin)
+    knownCommands := []string{"boardsize", "clear_board", "komi", "play",
                                "genmove", "final_score", "quit", "name",
                                "version", "known_command", "list_commands",
                                "protocol_version", "tsdebug"}
@@ -1706,18 +1706,18 @@ func gtp_io()  {
     tree := NewTreeNode(emptyPosition())
     tree.expand()
 
-    for gtp_in.Scan(){
-        line := gtp_in.Text()
+    for gtpIn.Scan(){
+        line := gtpIn.Text()
         line = strings.TrimRight(line, " \n")
         if line == "" {
             continue
         }
         line = strings.ToLower(line)
         command := strings.Split(line, " ")
-        cmdid := ""
+        gtpCommandID := ""
         matched, _ := regexp.MatchString("\\d+", command[0])
         if  matched {
-            cmdid = command[0]
+            gtpCommandID = command[0]
             command = command[1:]
         }
         owner_map := make([]float64, W*W)
@@ -1790,10 +1790,10 @@ func gtp_io()  {
         } else if command[0] == "tsdebug" {
             printPosition(treeSearch(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
         } else if command[0] == "list_commands" {
-            ret = strings.Join(known_commands, "\n")
+            ret = strings.Join(knownCommands, "\n")
         } else if command[0] == "known_command" {
             ret = "false"
-            for _, known := range(known_commands) {
+            for _, known := range(knownCommands) {
                 if command[1] == known {
                     ret = "true"
                     break
@@ -1802,7 +1802,7 @@ func gtp_io()  {
         } else if command[0] == "protocol_version" {
             ret = "2"
         } else if command[0] == "quit" {
-            fmt.Printf("=%s \n\n", cmdid)
+            fmt.Printf("=%s \n\n", gtpCommandID)
             break
         } else {
             fmt.Fprintln(os.Stderr, "Warning: Ignoring unknown command -", line)
@@ -1811,9 +1811,9 @@ func gtp_io()  {
 
         printPosition(tree.pos, os.Stderr, owner_map)
         if ret != "None" {
-            fmt.Printf("=%s %s\n\n", cmdid, ret)
+            fmt.Printf("=%s %s\n\n", gtpCommandID, ret)
         } else {
-            fmt.Printf("?%s ???\n\n", cmdid)
+            fmt.Printf("?%s ???\n\n", gtpCommandID)
         }
     }
 }
@@ -1847,23 +1847,23 @@ func main() {
 
     if len(os.Args) < 2 {
         // Default action
-        game_io(false)
+        gameIO(false)
     } else if os.Args[1] == "white" {
-        game_io(true)
+        gameIO(true)
     } else if os.Args[1] == "gtp" {
-        gtp_io()
+        gtpIO()
     } else if os.Args[1] == "mcdebug" {
         score, _, _ := mcplayout(emptyPosition(), make([]int, W*W), true)
         fmt.Println(score)
     } else if os.Args[1] == "mcbenchmark" {
         fmt.Println(mcbenchmark(20))
     } else if os.Args[1] == "tsbenchmark" {
-        t_start := time.Now()
+        startTime := time.Now()
         printPosition(treeSearch(NewTreeNode(emptyPosition()), N_SIMS, make([]float64, W*W), false).pos, os.Stderr, nil)
-        t_end := time.Now()
+        endTime := time.Now()
         fmt.Printf("Tree search with %d playouts took %s with %d threads; speed is %.3f playouts/thread/s\n",
-                   N_SIMS, t_end.Sub(t_start).String(), runtime.GOMAXPROCS(0),
-                   float64(N_SIMS) / (t_end.Sub(t_start).Seconds() * float64(runtime.GOMAXPROCS(0))))
+                   N_SIMS, endTime.Sub(startTime).String(), runtime.GOMAXPROCS(0),
+                   float64(N_SIMS) / (endTime.Sub(startTime).Seconds() * float64(runtime.GOMAXPROCS(0))))
     } else if os.Args[1] == "tsdebug" {
         printPosition(treeSearch(NewTreeNode(emptyPosition()), N_SIMS, make([]float64, W*W), true).pos, os.Stderr, nil)
     } else {
