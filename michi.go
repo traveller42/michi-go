@@ -32,9 +32,7 @@ const (
 )
 
 // emptyBoard is a byte slice representing an empty board
-var emptyBoard = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
-                bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
-                bytes.Repeat([]byte{' '}, N+2)...)
+var emptyBoard []byte
 
 const (
     PASS = -1346458457  // 'P','A','S','S' 0x50415353
@@ -121,6 +119,89 @@ var pattern3x3Source = [...][][]byte{
          {' ',' ',' '}},
         }
 
+// 3x3 pattern routines (those patterns stored in pattern3x3Source above)
+
+// All possible neighborhood configurations matching a given pattern;
+// used just for a combinatoric explosion when loading them in an
+// in-memory set.
+func pat3_expand(pat [][]byte) [][]byte {
+    pat_rot90 := func(p [][]byte) [][]byte {
+        return [][]byte{{p[2][0], p[1][0], p[0][0]},
+                        {p[2][1], p[1][1], p[0][1]},
+                        {p[2][2], p[1][2], p[0][2]}}
+    }
+    pat_vertflip := func(p [][]byte) [][]byte {
+        return [][]byte{p[2], p[1], p[0]}
+    }
+    pat_horizflip := func(p [][]byte) [][]byte {
+        return [][]byte{{p[0][2], p[0][1], p[0][0]},
+                        {p[1][2], p[1][1], p[1][0]},
+                        {p[2][2], p[2][1], p[2][0]}}
+    }
+    pat_swapcolors := func(p [][]byte) [][]byte {
+        l := [][]byte{}
+        for _, s:= range(p) {
+            s = bytes.Replace(s, []byte{'X'}, []byte{'Z'}, -1)
+            s = bytes.Replace(s, []byte{'x'}, []byte{'z'}, -1)
+            s = bytes.Replace(s, []byte{'O'}, []byte{'X'}, -1)
+            s = bytes.Replace(s, []byte{'o'}, []byte{'x'}, -1)
+            s = bytes.Replace(s, []byte{'Z'}, []byte{'O'}, -1)
+            s = bytes.Replace(s, []byte{'z'}, []byte{'o'}, -1)
+            l = append(l, s)
+        }
+        return l
+    }
+    var pat_wildexp func(p []byte, c byte, to []byte) [][]byte
+    pat_wildexp = func(p []byte, c byte, to []byte) [][]byte {
+        i := bytes.Index(p, []byte{c})
+        if i == -1 {
+            return append([][]byte{}, p)
+        }
+        l := [][]byte{}
+        for _, t := range(bytes.Split(to, []byte{})) {
+            l = append(l, pat_wildexp(append(append(append([]byte{}, p[:i]...), t[0]), p[i+1:]...), c, to)...)
+        }
+        return l
+    }
+    pat_wildcards := func(pat []byte) [][]byte {
+        l := [][]byte{}
+        for _, p1 := range(pat_wildexp(pat, '?', []byte{'.','X','O',' '})) {
+            for _, p2 := range(pat_wildexp(p1, 'x', []byte{'.','O',' '})) {
+                for _, p3 := range(pat_wildexp(p2, 'o', []byte{'.','X',' '})) {
+                    l = append(l, p3)
+                }
+            }
+        }
+        return l
+    }
+
+    rl := [][]byte{}
+    for _, p1 := range([][][]byte{pat, pat_rot90(pat)}) {
+        for _, p2 := range([][][]byte{p1, pat_vertflip(p1)}) {
+            for _, p3 := range([][][]byte{p2, pat_horizflip(p2)}) {
+                for _, p4 := range([][][]byte{p3, pat_swapcolors(p3)}) {
+                    for _, p5 := range(pat_wildcards(bytes.Join(p4, []byte{}))) {
+                        rl = append(rl, p5)
+                    }
+                }
+            }
+        }
+    }
+    return rl
+}
+
+func pat3set_func() map[string]struct{} {
+    m := make(map[string]struct{})
+    for _, p := range(pattern3x3Source) {
+        for _, s := range(pat3_expand(p)) {
+            s = bytes.Replace(s, []byte{'O'}, []byte{'x'}, -1)
+            m[string(s)] = struct{}{}
+        }
+    }
+    return m
+}
+var pat3set map[string]struct{}
+
 var patternGridcularSequence = [][][]int{  // Sequence of coordinate offsets of progressively wider diameters in gridcular metric
         {{0,0},
          {0,1}, {0,-1}, {1,0},  {-1,0},
@@ -138,6 +219,22 @@ var patternGridcularSequence = [][][]int{  // Sequence of coordinate offsets of 
         {{0,7}, {0,-7}, {2,6},  {-2,6},  {2,-6}, {-2,-6}, {4,5},  {-4,5},  {4,-5}, {-4,-5}, {5,4},  {-5,4},  {5,-4}, {-5,-4}, {6,2},  {-6,2}, {6,-2}, {-6,-2}, {7,0}, {-7,0}, },
 }
 
+//######################
+// Initialization
+//     collect all dynamic initializations into a callable function
+
+// performInitialization() collects all the runtime initializations together
+// so they can be called from main() allowing better control
+func performInitialization() {
+    emptyBoard = append(append(append(bytes.Repeat([]byte{' '}, N+1), '\n'),
+                    bytes.Repeat(append([]byte{' '}, append(bytes.Repeat([]byte{'.'}, N), '\n')...), N)...),
+                    bytes.Repeat([]byte{' '}, N+2)...)
+
+    pat3set = pat3set_func()
+
+    spatPatternDict = make(map[uint64]int) // hash(neighborhoodGridcular()) -> spatial id
+    largePatterns = make(map[int]float64) // spatial id -> probability
+}
 
 //######################
 // board string routines
@@ -507,7 +604,7 @@ func (p Position) score(owner_map []float64) float64 {
 func emptyPosition() Position {
     var p Position
 
-    p.board = emptyBoard // XXX: verify that this doesn't lead to modification of emptyBoard
+    p.board = emptyBoard
     p.cap = []int{0, 0}
     p.n = 0
     p.ko = NONE
@@ -686,89 +783,6 @@ func emptyArea(board []byte, c, dist int) bool {
     return true
 }
 
-// 3x3 pattern routines (those patterns stored in pattern3x3Source above)
-
-// All possible neighborhood configurations matching a given pattern;
-// used just for a combinatoric explosion when loading them in an
-// in-memory set.
-func pat3_expand(pat [][]byte) [][]byte {
-    pat_rot90 := func(p [][]byte) [][]byte {
-        return [][]byte{{p[2][0], p[1][0], p[0][0]},
-                        {p[2][1], p[1][1], p[0][1]},
-                        {p[2][2], p[1][2], p[0][2]}}
-    }
-    pat_vertflip := func(p [][]byte) [][]byte {
-        return [][]byte{p[2], p[1], p[0]}
-    }
-    pat_horizflip := func(p [][]byte) [][]byte {
-        return [][]byte{{p[0][2], p[0][1], p[0][0]},
-                        {p[1][2], p[1][1], p[1][0]},
-                        {p[2][2], p[2][1], p[2][0]}}
-    }
-    pat_swapcolors := func(p [][]byte) [][]byte {
-        l := [][]byte{}
-        for _, s:= range(p) {
-            s = bytes.Replace(s, []byte{'X'}, []byte{'Z'}, -1)
-            s = bytes.Replace(s, []byte{'x'}, []byte{'z'}, -1)
-            s = bytes.Replace(s, []byte{'O'}, []byte{'X'}, -1)
-            s = bytes.Replace(s, []byte{'o'}, []byte{'x'}, -1)
-            s = bytes.Replace(s, []byte{'Z'}, []byte{'O'}, -1)
-            s = bytes.Replace(s, []byte{'z'}, []byte{'o'}, -1)
-            l = append(l, s)
-        }
-        return l
-    }
-    var pat_wildexp func(p []byte, c byte, to []byte) [][]byte
-    pat_wildexp = func(p []byte, c byte, to []byte) [][]byte {
-        i := bytes.Index(p, []byte{c})
-        if i == -1 {
-            return append([][]byte{}, p)
-        }
-        l := [][]byte{}
-        for _, t := range(bytes.Split(to, []byte{})) {
-            l = append(l, pat_wildexp(append(append(append([]byte{}, p[:i]...), t[0]), p[i+1:]...), c, to)...)
-        }
-        return l
-    }
-    pat_wildcards := func(pat []byte) [][]byte {
-        l := [][]byte{}
-        for _, p1 := range(pat_wildexp(pat, '?', []byte{'.','X','O',' '})) {
-            for _, p2 := range(pat_wildexp(p1, 'x', []byte{'.','O',' '})) {
-                for _, p3 := range(pat_wildexp(p2, 'o', []byte{'.','X',' '})) {
-                    l = append(l, p3)
-                }
-            }
-        }
-        return l
-    }
-
-    rl := [][]byte{}
-    for _, p1 := range([][][]byte{pat, pat_rot90(pat)}) {
-        for _, p2 := range([][][]byte{p1, pat_vertflip(p1)}) {
-            for _, p3 := range([][][]byte{p2, pat_horizflip(p2)}) {
-                for _, p4 := range([][][]byte{p3, pat_swapcolors(p3)}) {
-                    for _, p5 := range(pat_wildcards(bytes.Join(p4, []byte{}))) {
-                        rl = append(rl, p5)
-                    }
-                }
-            }
-        }
-    }
-    return rl
-}
-
-func pat3set_func() map[string]struct{} {
-    m := make(map[string]struct{})
-    for _, p := range(pattern3x3Source) {
-        for _, s := range(pat3_expand(p)) {
-            s = bytes.Replace(s, []byte{'O'}, []byte{'x'}, -1)
-            m[string(s)] = struct{}{}
-        }
-    }
-    return m
-}
-var pat3set = pat3set_func()    // XXX: investigate moving this to top of main()
-
 // return a string containing the 9 points forming 3x3 square around
 //  certain move candidate
 func neighborhood3x3(board []byte, c int) []byte {
@@ -784,8 +798,7 @@ func neighborhood3x3(board []byte, c int) []byte {
 // https://github.com/pasky/pachi/blob/master/tools/pattern_spatial_show.pl
 // and try e.g. ./pattern_spatial_show.pl 71
 
-// XXX: investigate moving this to top of main()
-var spatPatternDict = make(map[uint64]int) // hash(neighborhoodGridcular()) -> spatial id
+var spatPatternDict map[uint64]int // hash(neighborhoodGridcular()) -> spatial id
 
 // load dictionary of positions, translating them to numeric ids
 func loadSpatPatternDict(f *os.File) {
@@ -803,8 +816,7 @@ func loadSpatPatternDict(f *os.File) {
     }
 }
 
-// XXX: investigate moving this to top of main()
-var largePatterns = make(map[int]float64) // spatial id -> probability
+var largePatterns map[int]float64 // spatial id -> probability
 
 // dictionary of numeric pattern ids, translating them to probabilities
 // that a move matching such move will be played when it is available
@@ -1815,6 +1827,7 @@ func gtpIO()  {
 }
 
 func main() {
+    performInitialization()
     patternLoadError := false
     f, err := os.Open(spatPatternDictFile)
     if err == nil {
@@ -1834,9 +1847,8 @@ func main() {
     }
     if patternLoadError {
         fmt.Fprintln(os.Stderr, "Warning: Cannot load pattern files; will be much weaker, consider lowering EXPAND_VISITS 5->2")
-    } else {
-        fmt.Fprintln(os.Stderr, "Done.")
     }
+    fmt.Fprintln(os.Stderr, "Done")
 
     mt = rand.New(mt64.New())
 	mt.Seed(time.Now().UnixNano())
