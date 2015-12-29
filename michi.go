@@ -202,10 +202,6 @@ func HashByteSlice(s []byte) uint64 {
     return h.Sum64()
 }
 
-func divmod(num, div int) (int, int) {
-    return num / div, num % div
-}
-
 // mapping function to swap individual characters
 func swapCase(r rune) rune {
     switch {
@@ -667,7 +663,7 @@ func cfgDistance(board []byte, c int) []int {
 
 // Return the line number above nearest board edge
 func lineHeight(c int) int {
-    row, col := divmod(c - (W+1), W)
+    row, col := (c - (W+1)) / W, (c - (W+1)) % W
     minVal := row
     for _, testVal := range([]int{col, N-1-row, N-1-col}) {
         if testVal < minVal {
@@ -855,7 +851,7 @@ func neighborhoodGridcular(board []byte, c int, done chan struct{}) chan []byte 
             for ri := 0; ri < len(rotations); ri++ {
                 r := rotations[ri]
                 for _, o := range(dseq) {
-                    y, x := divmod(c - (W+1), W)
+                    y, x := (c - (W+1)) / W, (c - (W+1)) % W
                     y += o[r[0][0]]*r[1][0]
                     x += o[r[0][1]]*r[1][1]
                     if y >= 0 && y < N && x >= 0 && x < N {
@@ -1614,7 +1610,7 @@ func stringCoordinates(c int) string {
     if c == NONE {
         return "NONE"
     }
-    row, col := divmod(c - (W+1), W)
+    row, col := (c - (W+1)) / W, (c - (W+1)) % W
     return fmt.Sprintf("%c%d", columnString[col], N-row)
 }
 
