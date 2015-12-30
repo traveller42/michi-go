@@ -17,6 +17,7 @@ import (
     "strconv"
     "strings"
     "time"
+    "unicode"
 )
 
 // Given a board of size NxN (N=9, 19, ...), we represent the position
@@ -256,7 +257,8 @@ func boardPut(board []byte, c int, p byte) []byte {
 
 // replace continuous-color area starting at c with special color #
 func floodfill(board []byte, c int) []byte {
-    localBoard := append([]byte{}, board...)
+    localBoard := make([]byte, len(board))
+    copy(localBoard, board)
 
     // XXX: Use bytearray to speed things up? (still needed in golang?)
     p := localBoard[c]
@@ -310,9 +312,19 @@ func swapCase(r rune) rune {
         return r
     }
 }
+
 // function to apply mapping to string
 func SwapCase(str []byte) []byte {
-    return bytes.Map(swapCase, str)
+    b := make([]byte, len(str))
+    for i, c := range str {
+        r := rune(c)
+        if unicode.IsUpper(r) {
+            b[i] = byte(unicode.ToLower(r))
+        } else {
+            b[i] = byte(unicode.ToUpper(r))
+        }
+    }
+    return b
 }
 
 // shuffle slice elements
@@ -428,7 +440,8 @@ func (p Position) move(c int) (Position, string) {
     // Are we trying to play in enemy's eye?
     inEnemyEye := isEyeish(p.board, c) == 'x'
 
-    board := append([]byte{}, p.board...)
+    board := make([]byte, len(p.board))
+    copy(board, p.board)
     board = boardPut(board, c, 'X')
     // Test for captures, and track ko
     capX := p.cap[0]
@@ -552,7 +565,8 @@ func (p Position) lastMovesNeighbors() []int {
 // to be an array of statistics with average owner at the end of the game
 // (+1 black, -1 white)
 func (p Position) score(owner_map []float64) float64 {
-    board := append([]byte{}, p.board...)
+    board := make([]byte, len(p.board))
+    copy(board, p.board)
     var fillBoard []byte
     var touches_X, touches_x bool
     var komi float64
@@ -1263,7 +1277,8 @@ func treeDescend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
         }
 
         // Pick the most urgent child
-        children := append([]*TreeNode{}, nodes[len(nodes)-1].children...)
+        children := make([]*TreeNode, len(nodes[len(nodes)-1].children))
+        copy(children, nodes[len(nodes)-1].children)
         if disp {
             for _, child := range(children) {
                 dumpSubtree(child, N_SIMS/50, 0, os.Stderr, false)
