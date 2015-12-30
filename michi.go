@@ -804,15 +804,19 @@ var spatPatternDict map[uint64]int // hash(neighborhoodGridcular()) -> spatial i
 func loadSpatPatternDict(f *os.File) {
     scanner := bufio.NewScanner(f)
     for scanner.Scan() {
-        line := scanner.Bytes()
+        line := scanner.Text()
         // line: 71 6 ..X.X..OO.O..........#X...... 33408f5e 188e9d3e 2166befe aa8ac9e 127e583e 1282462e 5e3d7fe 51fc9ee
-        if bytes.HasPrefix(line, []byte{'#'}) {
+        if strings.HasPrefix(line, "#") {
             continue
         }
-        neighborhood := bytes.Replace(bytes.Replace(bytes.Split(line, []byte{' '})[2], []byte{'#'}, []byte{' '}, -1), []byte{'O'}, []byte{'x'}, -1)
-        if id, err := strconv.ParseInt(string(bytes.Split(line, []byte{' '})[0]), 10, 0); err == nil {
-            spatPatternDict[HashByteSlice(neighborhood)] = int(id)
+        lineFields := strings.SplitN(line, " ", 4)
+        id, err := strconv.ParseInt(string(lineFields[0]), 10, 0)
+        if err != nil {
+            continue
         }
+        neighborhood := strings.Replace(strings.Replace(lineFields[2], "#", " ", -1), "O", "x", -1)
+
+        spatPatternDict[HashByteSlice([]byte(neighborhood))] = int(id)
     }
 }
 
@@ -821,18 +825,29 @@ var largePatterns map[int]float64 // spatial id -> probability
 // dictionary of numeric pattern ids, translating them to probabilities
 // that a move matching such move will be played when it is available
 func loadLargePatterns(f *os.File) {
-    re := regexp.MustCompile("s:([0-9]+)")
     scanner := bufio.NewScanner(f)
     for scanner.Scan() {
         line := scanner.Text()
         // line: 0.004 14 3842 (capture:17 border:0 s:784)
-        if p, err := strconv.ParseFloat(strings.Split(line, " ")[0],64); err == nil {
-            if m := re.FindStringSubmatch(line); m != nil {
-                if s, err := strconv.ParseInt(m[1], 10, 0); err == nil {
-                    largePatterns[int(s)] = p
-                }
-            }
+        lineFields := strings.SplitN(line, " ", 4)
+
+        prob, err := strconv.ParseFloat(lineFields[0],64)
+        if err != nil {
+            continue
         }
+        targetData := strings.SplitN(lineFields[3], "s:", 2)
+        if len(targetData) < 2 {
+            continue
+        }
+        dataStrings := strings.SplitN(targetData[1], ")", 2)
+        if dataStrings == nil {
+            continue
+        }
+        id, err := strconv.ParseInt(dataStrings[0], 10, 0)
+        if err != nil {
+            continue
+        }
+        largePatterns[int(id)] = prob
     }
 }
 
@@ -1794,7 +1809,7 @@ func gtpIO()  {
         } else if command[0] == "name" {
             ret = "michi-go"
         } else if command[0] == "version" {
-            ret = "2.0"
+            ret = "2.0+perf"
         } else if command[0] == "tsdebug" {
             printPosition(treeSearch(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
         } else if command[0] == "list_commands" {
