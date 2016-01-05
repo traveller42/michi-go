@@ -292,7 +292,14 @@ func contact(board []byte, p byte) int {
 }
 
 // Use Mersenne Twister as Random Number Generator in place of default
-var mt *rand.Rand
+// Use multiple RNG sources to reduce contention
+var rng *rand.Rand
+
+func newRNG() *rand.Rand {
+    rng := rand.New(mt64.New())
+    rng.Seed(time.Now().UnixNano())
+    return rng
+}
 
 // use FNV Hash to generate key for large pattern map
 func HashByteSlice(s []byte) uint64 {
@@ -328,16 +335,16 @@ func SwapCase(str []byte) []byte {
 }
 
 // shuffle slice elements
-func shuffleInt(a []int) {
+func shuffleInt(a []int, rng *rand.Rand) {
     for i := len(a)-1; i > 0; i-- {
-        j := mt.Intn(i+1)
+        j := rng.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
 
-func shuffleTree(a []*TreeNode) {
+func shuffleTree(a []*TreeNode, rng *rand.Rand) {
     for i := len(a)-1; i > 0; i-- {
-        j := mt.Intn(i+1)
+        j := rng.Intn(i+1)
         a[i], a[j] = a[j], a[i]
     }
 }
@@ -541,7 +548,7 @@ func (p Position) moves(i0 int, done chan struct{}) chan int {
 // generate a randomly shuffled list of points including and
 // surrounding the last two moves (but with the last move having
 // priority)
-func (p Position) lastMovesNeighbors() []int {
+func (p Position) lastMovesNeighbors(rng *rand.Rand) []int {
     cList := []int{}
     dList := []int{}
     for _, c := range []int{p.last, p.last2} {
@@ -549,7 +556,7 @@ func (p Position) lastMovesNeighbors() []int {
             continue
         }
         dList = append([]int{c}, append(neighbors(c), diagonalNeighbors(c)...)...)
-        shuffleInt(dList)
+        shuffleInt(dList, rng)
         for _, d := range dList {
             if intInSlice(cList, d) {
                 continue
@@ -961,13 +968,14 @@ func generatePlayoutMoves(pos Position, heuristicSet []int, probs map[string]flo
 
     go func() {
         defer close(ch)
+        rng := newRNG()
         // Check whether any local group is in atari and fill that liberty
-        if mt.Float64() <= probs["capture"] {
+        if rng.Float64() <= probs["capture"] {
             alreadySuggested := []int{}
             for _, c := range(heuristicSet) {
                 if bytes.Contains([]byte{'X', 'x'}, []byte{pos.board[c]}) {
                     _, ds := fixAtari(pos, c, false, true, !(expensiveOK))
-                    shuffleInt(ds)
+                    shuffleInt(ds, rng)
                     for _, d := range(ds) {
                         if !(intInSlice(alreadySuggested, d)) {
                             r.intResult = d
@@ -985,7 +993,7 @@ func generatePlayoutMoves(pos Position, heuristicSet []int, probs map[string]flo
         }
 
         // Try to apply a 3x3 pattern on the local neighborhood
-        if mt.Float64() <= probs["pat3"] {
+        if rng.Float64() <= probs["pat3"] {
             alreadySuggested := []int{}
             for _, c := range(heuristicSet) {
                 if pos.board[c] == '.' && !(intInSlice(alreadySuggested, c)) && patternInSet(pat3set, neighborhood3x3(pos.board, c)) {
@@ -1005,7 +1013,7 @@ func generatePlayoutMoves(pos Position, heuristicSet []int, probs map[string]flo
         // (in other words, suggest a random move)
         moves_done := make(chan struct{})
         defer close(moves_done)
-        x, y := mt.Intn(N-1)+1, mt.Intn(N-1)+1
+        x, y := rng.Intn(N-1)+1, rng.Intn(N-1)+1
         for c := range(pos.moves(y*W + x, moves_done)) {
             r.intResult = c
             r.strResult = "random"
@@ -1032,6 +1040,8 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
     if disp {
         fmt.Fprintln(os.Stderr, "** SIMULATION **")
     }
+    rng := newRNG()
+
     start_n := pos.n
     passes := 0
     for passes < 2 && pos.n < MAX_GAME_LEN {
@@ -1043,7 +1053,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
         // order, but not with 100% probability; this is on the border between
         // "rule-based playouts" and "probability distribution playouts".
         done := make(chan struct{})
-        for r := range(generatePlayoutMoves(pos, pos.lastMovesNeighbors(), PROB_HEURISTIC, false, done)) {
+        for r := range(generatePlayoutMoves(pos, pos.lastMovesNeighbors(rng), PROB_HEURISTIC, false, done)) {
             c := r.intResult
             kind := r.strResult
             if disp && kind != "random" {
@@ -1060,7 +1070,7 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
             } else {
                 prob_reject = PROB_SSAREJECT
             }
-            if mt.Float64() <= prob_reject {
+            if rng.Float64() <= prob_reject {
                 inAtari, _ := fixAtari(pos2, c, true, true, true)
                 if inAtari {
                     if disp {
@@ -1284,7 +1294,7 @@ func treeDescend(tree *TreeNode, amaf_map []int, disp bool) []*TreeNode {
                 dumpSubtree(child, N_SIMS/50, 0, os.Stderr, false)
             }
         }
-        shuffleTree(children) // randomize the max in case of equal urgency
+        shuffleTree(children, rng) // randomize the max in case of equal urgency
 
         // find most urgent child by node.raveUrgency()
         node := children[0]
@@ -1880,8 +1890,7 @@ func main() {
     }
     fmt.Fprintln(os.Stderr, "Done")
 
-    mt = rand.New(mt64.New())
-	mt.Seed(time.Now().UnixNano())
+    rng = newRNG()
 
     if len(os.Args) < 2 {
         // Default action
