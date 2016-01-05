@@ -8,7 +8,7 @@ import (
     "bytes"
     "fmt"
     mt64 "github.com/bszcz/mt19937_64"
-    "hash/fnv"
+    xxhash "github.com/OneOfOne/xxhash/native"
     "math"
     "math/rand"
     "os"
@@ -233,8 +233,8 @@ func performInitialization() {
 
     pat3set = pat3set_func()
 
-    spatPatternDict = make(map[uint64]int) // hash(neighborhoodGridcular()) -> spatial id
-    largePatterns = make(map[int]float64) // spatial id -> probability
+    spatPatternDict = make(map[int]uint64) // hash(neighborhoodGridcular()) <- spatial id
+    largePatterns = make(map[uint64]float64) // hash(neighborhoodGridcular()) -> probability
 }
 
 //######################
@@ -299,13 +299,6 @@ func newRNG() *rand.Rand {
     rng := rand.New(mt64.New())
     rng.Seed(time.Now().UnixNano())
     return rng
-}
-
-// use FNV Hash to generate key for large pattern map
-func HashByteSlice(s []byte) uint64 {
-    h := fnv.New64()
-    h.Write(s)
-    return h.Sum64()
 }
 
 // mapping function to swap individual characters
@@ -819,7 +812,7 @@ func neighborhood3x3(board []byte, c int) []byte {
 // https://github.com/pasky/pachi/blob/master/tools/pattern_spatial_show.pl
 // and try e.g. ./pattern_spatial_show.pl 71
 
-var spatPatternDict map[uint64]int // hash(neighborhoodGridcular()) -> spatial id
+var spatPatternDict map[int]uint64 // hash(neighborhoodGridcular()) <- spatial id
 
 // load dictionary of positions, translating them to numeric ids
 func loadSpatPatternDict(f *os.File) {
@@ -837,11 +830,11 @@ func loadSpatPatternDict(f *os.File) {
         }
         neighborhood := strings.Replace(strings.Replace(lineFields[2], "#", " ", -1), "O", "x", -1)
 
-        spatPatternDict[HashByteSlice([]byte(neighborhood))] = int(id)
+        spatPatternDict[int(id)] = xxhash.Checksum64([]byte(neighborhood))
     }
 }
 
-var largePatterns map[int]float64 // spatial id -> probability
+var largePatterns map[uint64]float64 // hash(neighborhoodGridcular()) -> probability
 
 // dictionary of numeric pattern ids, translating them to probabilities
 // that a move matching such move will be played when it is available
@@ -868,7 +861,11 @@ func loadLargePatterns(f *os.File) {
         if err != nil {
             continue
         }
-        largePatterns[int(id)] = prob
+        patternHash, goodHash := spatPatternDict[int(id)]
+        if !goodHash {
+            continue
+        }
+        largePatterns[patternHash] = prob
     }
 }
 
@@ -930,14 +927,11 @@ func largePatternProbability(board []byte, c int) float64 {
     nonMatchedLength := 0
     done := make(chan struct{})
     for n := range(neighborhoodGridcular(board, c, done)) {
-        sp_i, good_sp_i := spatPatternDict[HashByteSlice(n)]
-        if good_sp_i {
-            prob, good_prob := largePatterns[sp_i]
-            if good_prob {
-                probability = prob
-                matchedLength = len(n)
-                continue
-            }
+        prob, good_prob := largePatterns[xxhash.Checksum64(n)]
+        if good_prob {
+            probability = prob
+            matchedLength = len(n)
+            continue
         }
         if matchedLength < nonMatchedLength && nonMatchedLength < len(n) {
             // stop when we did not match any pattern with a certain
