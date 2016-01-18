@@ -1772,6 +1772,7 @@ func gtpIO() {
 			size, _ := strconv.ParseInt(command[1], 10, 0)
 			if int(size) != N {
 				fmt.Fprintf(os.Stderr, "Warning: Trying to set incompatible boardsize %s (!= %d)\n", command[0], N)
+				ret = "None"
 			}
 		} else if command[0] == "clear_board" {
 			tree = NewTreeNode(emptyPosition())
@@ -1780,6 +1781,8 @@ func gtpIO() {
 			komi, err := strconv.ParseFloat(command[1], 64)
 			if err == nil {
 				tree.pos.komi = komi
+			} else {
+				ret = "None"
 			}
 		} else if command[0] == "play" {
 			c := parseCoordinates(command[2])
@@ -1798,6 +1801,7 @@ func gtpIO() {
 					tree = NewTreeNode(pos)
 				} else {
 					fmt.Fprintln(os.Stderr, "Error updating sent move:", err)
+					ret = "None"
 				}
 			} else {
 				// Pass move
