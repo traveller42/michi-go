@@ -593,7 +593,7 @@ func fix_atari(pos Position, c int, singlept_ok, twolib_test, twolib_edgeonly bo
 			// however, ignore 2lib groups as we don't have time to chase them
 			// is_atari, atari_escape = fix_atari(pos_l, c, twolib_test=False)
 			is_atari, atari_escape := fix_atari(pos_l, c, false, false, false)
-			if is_atari && len(atari_escape) > 0 {
+			if is_atari && len(atari_escape) == 0 {
 				return l
 			}
 		}
