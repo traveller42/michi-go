@@ -664,7 +664,7 @@ func fixAtari(pos Position, c int, singlePointOK, twoLibertyTest, twoLibertyTest
 			// fixAtari() will recursively call readLadderAttack() back;
 			// however, ignore 2lib groups as we don't have time to chase them
 			isAtari, atariEscape := fixAtari(pos_l, c, false, false, false)
-			if isAtari && len(atariEscape) > 0 {
+			if isAtari && len(atariEscape) == 0 {
 				return l
 			}
 		}
