@@ -1867,7 +1867,7 @@ func gtp_io() {
 		} else if command[0] == "name" {
 			ret = "michi-go"
 		} else if command[0] == "version" {
-			ret = "1.1.3"
+			ret = "1.1.4"
 		} else if command[0] == "tsdebug" {
 			print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
 		} else if command[0] == "list_commands" {
