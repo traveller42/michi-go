@@ -1069,8 +1069,8 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
 				prob_reject = PROB_SSAREJECT
 			}
 			if rng.Float64() <= prob_reject {
-				inAtari, _ := fixAtari(pos2, c, true, true, true)
-				if inAtari {
+				_, atariEscape := fixAtari(pos2, c, true, true, true)
+				if len(atariEscape) > 0 {
 					if disp {
 						fmt.Fprintln(os.Stderr, "rejecting self-atari move", stringCoordinates(c))
 					}
