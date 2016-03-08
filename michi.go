@@ -1071,8 +1071,8 @@ func mcplayout(pos Position, amaf_map []int, disp bool) (float64, []int, []float
 			}
 			if rand.Float64() <= prob_reject {
 				// in_atari, ds = fix_atari(pos2, c, singlept_ok=True, twolib_edgeonly=True)
-				in_atari, _ := fix_atari(pos2, c, true, true, true)
-				if in_atari {
+				_, atari_escape := fix_atari(pos2, c, true, true, true)
+				if len(atari_escape) > 0 {
 					if disp {
 						fmt.Fprintln(os.Stderr, "rejecting self-atari move", str_coord(c))
 					}
@@ -1871,7 +1871,7 @@ func gtp_io() {
 		} else if command[0] == "name" {
 			ret = "michi-go"
 		} else if command[0] == "version" {
-			ret = "1.1.4"
+			ret = "1.1.5"
 		} else if command[0] == "tsdebug" {
 			print_pos(tree_search(tree, N_SIMS, owner_map, true).pos, os.Stderr, nil)
 		} else if command[0] == "list_commands" {
