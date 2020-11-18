@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode"
 
-	xxhash "github.com/OneOfOne/xxhash/native"
+	xxhash "github.com/OneOfOne/xxhash"
 	mt64 "github.com/bszcz/mt19937_64"
 )
 
